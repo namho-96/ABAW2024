@@ -1,0 +1,18 @@
+# Requirement
+
+# CUDA 11.8 : --extra-index-url https://download.pytorch.org/whl/cu118
+# CUDA 12.1 : --extra-index-url https://download.pytorch.org/whl/cu121
+
+numpy
+seaborn
+matplotlib
+torch
+--extra-index-url https://download.pytorch.org/whl/cu121
+torchvision
+--extra-index-url https://download.pytorch.org/whl/cu121
+torchaudio
+--extra-index-url https://download.pytorch.org/whl/cu121
+
+scikit-learn
+tqdm
+timm
