@@ -12,9 +12,9 @@ def load_model(config_module):
             model = load_visual_model(config_module.visual_model, train=True)
         elif config_module.data_type == 'temporal':
             pass
-        elif config_module.data_type == 'transformer':
+        elif config_module.data_type == 'multimodal':
             model = load_transformer_model(config_module)
-        return model                        
+        return model
         
     elif config_module.mode == 'inference': # For inference
         audio_model = load_audio_model(config_module.audio_model)
@@ -39,7 +39,7 @@ def load_audio_model(model_path):
     model = Wav2Vec2FeatureExtractor.from_pretrained(model_path)
     return model
     
-def load_visual_model(model_name, train=False):
+def load_visual_model(config_module, model_name, train=False):
     if  model_name == 'swin':
         # Swin Transformer 모델 로드
         model = AutoModel.from_pretrained(model_name)
@@ -76,5 +76,5 @@ def load_visual_model(model_name, train=False):
     
 def load_transformer_model(config_module):
     if config_module.model_name == 'base':
-        model = BaseModel(config_module.num_features, config_module.num_classes)
+        model = BaseModel(config_module.num_features, config_module.num_head, config_module.num_classes)
     return model

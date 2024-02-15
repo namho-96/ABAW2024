@@ -5,13 +5,35 @@ import os
 from sklearn.metrics import f1_score
 import numpy as np
 import importlib
+import random
+
+def fix_seed(seed: int = 42):
+    """
+    PyTorch 및 NumPy 라이브러리의 시드를 고정하는 함수.
+    
+    Args:
+        seed (int): 고정할 시드 값. 기본값은 42.
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+def createDirectory(directory):
+    try:
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+    except OSError:
+        print("Error: Failed to create the directory.")
 
 def update_config(args):   
     config_module = importlib.import_module(args.config)
-    config_module.model_name = args.model_name
     config_module.data_type = args.data_type
-    config_module.device = args.device
     config_module.mode = args.mode
+    config_module.device = args.device
     return config_module
     
 def denormalize(tensor):

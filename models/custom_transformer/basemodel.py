@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from timm.models.layers import DropPath, to_2tuple, trunc_normal_       
+from timm.models.layers import DropPath, to_2tuple       
         
 class CustomMlp(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, bias=True, drop=0.):
@@ -25,18 +25,6 @@ class CustomMlp(nn.Module):
         x = self.drop2(x)
         return x        
         
-class DropPath(nn.Module):
-    """Drop paths (Stochastic Depth) per sample  (when applied in main path of residual blocks).
-    """
-    def __init__(self, drop_prob: float = 0., scale_by_keep: bool = True):
-        super().__init__()
-        self.drop_prob = drop_prob
-        self.scale_by_keep = scale_by_keep
-
-    def forward(self, x):
-        return drop_path(x, self.drop_prob, self.training, self.scale_by_keep)
-        
-        
 class CrossAttention(nn.Module):
     def __init__(self, dim, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0.):
         super().__init__()
@@ -55,7 +43,6 @@ class CrossAttention(nn.Module):
         x2 = x[1]
         
         B, N, C = x1.shape
-        
         q = x1.reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
         kv = self.kv(x2).reshape(B, N, 2, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         k, v = kv.unbind(0)   # make torchscript happy (cannot use tensor as tuple)
@@ -94,6 +81,7 @@ class ResPostBlock(nn.Module):
             nn.init.constant_(self.norm2.weight, self.init_values)
 
     def forward(self, x):
+        #print(f"Second : {x[0].shape}, {x[1].shape}")
         x = self.attn(x)
         x = x + self.drop_path1(self.norm1(x))
         x = x + self.drop_path2(self.norm2(self.mlp(x)))
@@ -117,30 +105,17 @@ class BaseModel(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool1d(1)
         self.head = nn.Linear(num_features, num_classes) if num_classes > 0 else nn.Identity()
 
-        self.apply(self._init_weights)
-
-    def _init_weights(self, m):
-        if isinstance(m, nn.Linear):
-            trunc_normal_(m.weight, std=.02)
-            if isinstance(m, nn.Linear) and m.bias is not None:
-                nn.init.constant_(m.bias, 0)
-        elif isinstance(m, nn.LayerNorm):
-            nn.init.constant_(m.bias, 0)
-            nn.init.constant_(m.weight, 1.0)
-
-    def forward_features(self, img, aud):        
-        transia = self.transformeriv([img, aud])
-        transai = self.transformervi([aud, img])
+    def forward_features(self, img, aud):
+        aud = F.interpolate(aud, size=(768), mode='linear')
+        transia = self.transformeria([img, aud])
+        transai = self.transformerai([aud, img])
         
         x = torch.cat((transia, transai), 2)
         x = self.norm(x) # B L (C*2)
         x = self.mlp(x)# B L C
         
-        x = self.transformer(x)
-        
+        x = self.transformer([x, x])
         x = self.norm2(x)  
-        x = self.avgpool(x.transpose(1, 2))  # B C 1
-        x = torch.flatten(x, 1)
         return x
 
     def forward(self, img, aud):

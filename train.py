@@ -4,7 +4,9 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import logging
 import os
-
+from utils import evaluate_performance
+from sklearn.metrics import classification_report
+from tqdm import tqdm
 def train_model(model, dataloader, criterion, optimizer, config_module, device, num_epochs=100):
 
     scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs)
@@ -52,3 +54,57 @@ def train_model(model, dataloader, criterion, optimizer, config_module, device, 
 
     return model
 
+# 학습 함수 정의
+def train_function(model, dataloader, criterion, optimizer, device, num_classes):
+    model.train()
+    running_loss = 0.0
+    
+    for vid, aud, labels in tqdm(dataloader):
+        #inputs[0], inputs[1], labels = inputs[0].to(device), inputs[1].to(device), labels.to(device)
+        
+        vid, aud, labels = vid.to(device), aud.to(device), labels.to(device)
+        
+        optimizer.zero_grad()
+        outputs = model(vid, aud)
+        outputs = outputs.reshape(-1, num_classes)
+        labels = labels.reshape(-1)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+
+        running_loss += loss.item()
+
+    train_loss = running_loss / len(dataloader)
+    return model, train_loss
+
+# 평가 함수 정의
+def evaluate_function(model, dataloader, criterion, device, num_classes):
+    model.eval()
+    running_loss = 0.0
+    perdiction = []
+    gt = []
+    with torch.no_grad():
+        for vid, aud, labels in tqdm(dataloader):
+            #inputs, labels = inputs.to(device), labels.to(device)
+            vid, aud, labels = vid.to(device), aud.to(device), labels.to(device)
+            outputs = model(vid, aud)
+            outputs = outputs.reshape(-1, num_classes)
+            labels = labels.reshape(-1)
+            loss = criterion(outputs, labels)
+            
+            _, predicted = outputs.max(1)
+
+            perdiction.extend(predicted.cpu().numpy())
+            gt.extend(labels.cpu().numpy())
+            
+            running_loss += loss.item()
+
+    test_loss = running_loss / len(dataloader)        
+    classification_rep = classification_report(gt, perdiction, output_dict=True, zero_division=1)
+    performance = 0
+    for class_name, metrics in classification_rep.items():
+        if class_name.isdigit():
+            performance += metrics["f1-score"]
+    performance /= 8
+    
+    return performance, test_loss
