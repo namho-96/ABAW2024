@@ -5,7 +5,7 @@ batch_size = 256
 epochs=100
 lr=0.01
 data_path = '/media/jun/jun4/2024'
-data_name = 'expr'
+data_name = 'va'
 data_type = 'multimodal'
 
 # model

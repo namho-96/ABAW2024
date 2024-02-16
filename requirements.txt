@@ -12,7 +12,7 @@ torchvision
 --extra-index-url https://download.pytorch.org/whl/cu121
 torchaudio
 --extra-index-url https://download.pytorch.org/whl/cu121
-
+transformers
 scikit-learn
 tqdm
 timm
