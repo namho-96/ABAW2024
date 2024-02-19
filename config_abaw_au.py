@@ -1,14 +1,26 @@
-model_name = 'resnet50'  # 오디오 데이터용 모델
 
-num_classes = 8 
-batch_size = 256
-epochs=100
-lr=0.01
-data_path = '/media/jun/jun4/2024'
+# Environments
+feat_path = './dataset/feature'
+label_path = './dataset/6th ABAW Annotations/VA_Estimation_Challenge'
+device = 0
+num_workers = 4
+
+
+# Data
 data_name = 'va'
 data_type = 'multimodal'
 
-# model
+
+# Model
 model_name = 'base'
-num_head = 8
+num_head = 4
 num_features = 768
+num_classes = 2
+
+
+# Training
+mode = 'train'
+batch_size = 512
+epochs = 100
+lr = 0.01
+

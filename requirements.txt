@@ -16,3 +16,4 @@ transformers
 scikit-learn
 tqdm
 timm
+natsort

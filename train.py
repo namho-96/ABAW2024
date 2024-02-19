@@ -7,6 +7,10 @@ import os
 from utils import evaluate_performance
 from sklearn.metrics import classification_report
 from tqdm import tqdm
+from utils import CCC
+
+
+
 def train_model(model, dataloader, criterion, optimizer, config_module, device, num_epochs=100):
 
     scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs)
@@ -63,11 +67,18 @@ def train_function(model, dataloader, criterion, optimizer, device, num_classes)
         #inputs[0], inputs[1], labels = inputs[0].to(device), inputs[1].to(device), labels.to(device)
         
         vid, aud, labels = vid.to(device), aud.to(device), labels.to(device)
-        
+
+
+        # vid (-0.6~ 0.6) 값
+        # aud (-2~2) 값
+        # normalize 필요
+
+
         optimizer.zero_grad()
         outputs = model(vid, aud)
-        outputs = outputs.reshape(-1, num_classes)
-        labels = labels.reshape(-1)
+        outputs = outputs.reshape(-1, num_classes).type(torch.float32)
+        labels = labels.reshape(-1, num_classes).type(torch.float32)        # shape 일치
+
         loss = criterion(outputs, labels)
         loss.backward()
         optimizer.step()
@@ -81,30 +92,35 @@ def train_function(model, dataloader, criterion, optimizer, device, num_classes)
 def evaluate_function(model, dataloader, criterion, device, num_classes):
     model.eval()
     running_loss = 0.0
-    perdiction = []
-    gt = []
+
+    total_performance = []
+
     with torch.no_grad():
         for vid, aud, labels in tqdm(dataloader):
             #inputs, labels = inputs.to(device), labels.to(device)
             vid, aud, labels = vid.to(device), aud.to(device), labels.to(device)
             outputs = model(vid, aud)
             outputs = outputs.reshape(-1, num_classes)
-            labels = labels.reshape(-1)
+            labels = labels.reshape(-1, num_classes)
             loss = criterion(outputs, labels)
             
-            _, predicted = outputs.max(1)
+            # _, predicted = outputs
 
-            perdiction.extend(predicted.cpu().numpy())
-            gt.extend(labels.cpu().numpy())
+            # perdiction.extend(predicted.cpu().numpy())
+            # gt.extend(labels.cpu().numpy())
             
             running_loss += loss.item()
 
+            CCC_arousal = CCC(labels[:, 0], outputs[:, 0])
+            CCC_valence = CCC(labels[:, 1], outputs[:, 1])
+            performance = 0.5 * (CCC_arousal.item() + CCC_valence.item())
+
+            total_performance.append(performance)
+
     test_loss = running_loss / len(dataloader)        
-    classification_rep = classification_report(gt, perdiction, output_dict=True, zero_division=1)
-    performance = 0
-    for class_name, metrics in classification_rep.items():
-        if class_name.isdigit():
-            performance += metrics["f1-score"]
-    performance /= 8
-    
-    return performance, test_loss
+    # classification_rep = classification_report(gt, perdiction, output_dict=True, zero_division=1)
+
+    avg_performance = sum(total_performance) / len(total_performance)
+
+    return avg_performance, test_loss
+

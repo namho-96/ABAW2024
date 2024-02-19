@@ -384,12 +384,26 @@ class SequenceData(Dataset):
         
         for seq_name, label in zip(seq_list, lb_list):
             aud_name = seq_name.replace("_left", "").replace("_right", "")
-            
-            aud_feat.append(np.load(os.path.join(self.feat_root, "audio", aud_name + ".npy")))
-            seq_feat.append(np.load(os.path.join(self.feat_root, "spatial", seq_name+ ".npy")))
-            seq_label.append(np.asarray(label))
-        aud_feat = np.asarray(aud_feat)
-        seq_feat = np.asarray(seq_feat)
-        seq_label = np.asarray(seq_label)
+
+            aud_feature = torch.from_numpy(np.load(os.path.join(self.feat_root, "audio", aud_name + ".npy"))).to("cuda:0")
+            seq_feature = torch.from_numpy(np.load(os.path.join(self.feat_root, "spatial", seq_name + ".npy"))).to("cuda:0")
+
+            aud_feature_normalized = (aud_feature - aud_feature.mean()) / aud_feature.std()
+            seq_feature_normalized = (seq_feature - seq_feature.mean()) / seq_feature.std()
+
+            # aud_feat.append(np.load(os.path.join(self.feat_root, "audio", aud_name + ".npy")))
+            # seq_feat.append(np.load(os.path.join(self.feat_root, "spatial", seq_name + ".npy")))
+
+            aud_feat.append(aud_feature_normalized)
+            seq_feat.append(seq_feature_normalized)
+            seq_label.append(torch.tensor(label).float().to("cuda:0"))
+
+        #aud_feat = np.asarray(aud_feat)
+        #seq_feat = np.asarray(seq_feat)
+        #seq_label = np.asarray(seq_label)
+
+        aud_feat = torch.stack(aud_feat)
+        seq_feat = torch.stack(seq_feat)
+        seq_label = torch.stack(seq_label)
         
         return seq_feat, aud_feat, seq_label

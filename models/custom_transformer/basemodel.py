@@ -104,15 +104,17 @@ class BaseModel(nn.Module):
         self.norm2 = norm_layer(num_features)
         self.avgpool = nn.AdaptiveAvgPool1d(1)
         self.head = nn.Linear(num_features, num_classes) if num_classes > 0 else nn.Identity()
+        # self.softmax = nn.Softmax(dim=-1)
+        self.tanh = nn.Tanh()
 
     def forward_features(self, img, aud):
         aud = F.interpolate(aud, size=(768), mode='linear')
-        transia = self.transformeria([img, aud])
-        transai = self.transformerai([aud, img])
+        transia = self.transformeria([img, aud])    # [[768]+[768]] -> [768]
+        transai = self.transformerai([aud, img])    # [[768]+[768]] -> [768]
         
         x = torch.cat((transia, transai), 2)
-        x = self.norm(x) # B L (C*2)
-        x = self.mlp(x)# B L C
+        x = self.norm(x)        # B L (C*2)
+        x = self.mlp(x)         # B L C
         
         x = self.transformer([x, x])
         x = self.norm2(x)  
@@ -121,4 +123,7 @@ class BaseModel(nn.Module):
     def forward(self, img, aud):
         x = self.forward_features(img, aud)
         x = self.head(x)
+        # BCELoss를 쓸 때 맨뒤에 softmax 추가
+        x = self.tanh(x)
         return x
+
