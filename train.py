@@ -7,8 +7,21 @@ import os
 from utils import evaluate_performance
 from sklearn.metrics import classification_report
 from tqdm import tqdm
-from utils import CCC
+from utils import CCC, CCC_loss
 
+
+def compute_VA_loss(Vout, Aout, label, criterion):
+    Vout = torch.clamp(Vout, -1, 1)
+    Aout = torch.clamp(Aout, -1, 1)
+    bz, seq, _ = Vout.shape
+    label = label.view(bz * seq, -1)
+    Vout = Vout.view(bz * seq, -1)
+    Aout = Aout.view(bz * seq, -1)
+    ccc_loss = CCC_loss(Vout[:, 0], label[:, 0]) + CCC_loss(Aout[:, 0], label[:, 1])
+    mse_loss = criterion(Vout[:, 0], label[:, 0]) + criterion(Aout[:, 0], label[:, 1])
+
+    loss = mse_loss
+    return loss, mse_loss, ccc_loss
 
 
 def train_model(model, dataloader, criterion, optimizer, config_module, device, num_epochs=100):
@@ -59,37 +72,36 @@ def train_model(model, dataloader, criterion, optimizer, config_module, device, 
     return model
 
 # 학습 함수 정의
-def train_function(model, dataloader, criterion, optimizer, device, num_classes):
+def train_function(model, dataloader, criterion, optimizer, device, config):
     model.train()
     running_loss = 0.0
-    
-    for vid, aud, labels in tqdm(dataloader):
+    progress_bar = tqdm(dataloader, desc="Loss: 0.0000")
+
+    for vid, aud, labels in progress_bar:
         #inputs[0], inputs[1], labels = inputs[0].to(device), inputs[1].to(device), labels.to(device)
-        
-        vid, aud, labels = vid.to(device), aud.to(device), labels.to(device)
-
-
-        # vid (-0.6~ 0.6) 값
-        # aud (-2~2) 값
-        # normalize 필요
-
-
         optimizer.zero_grad()
+        vid, aud, labels = vid.to(device), aud.to(device), labels.to(device)
         outputs = model(vid, aud)
-        outputs = outputs.reshape(-1, num_classes).type(torch.float32)
-        labels = labels.reshape(-1, num_classes).type(torch.float32)        # shape 일치
 
-        loss = criterion(outputs, labels)
+        if config.data_name == 'va':
+            loss, mse_loss, ccc_loss = compute_VA_loss(outputs[0], outputs[1], labels, criterion)
+        else:
+            outputs = outputs.reshape(-1, config.num_classes).type(torch.float32)
+            labels = labels.reshape(-1, config.num_classes).type(torch.float32)  # shape 일치
+            loss = criterion(outputs, labels)
+
         loss.backward()
         optimizer.step()
 
         running_loss += loss.item()
+        average_loss = running_loss / (progress_bar.n + 1)          # progress_bar.n은 현재까지 처리된 배치의 수입니다.
+        progress_bar.set_description(f"Loss: {average_loss:.4f}")
 
     train_loss = running_loss / len(dataloader)
     return model, train_loss
 
 # 평가 함수 정의
-def evaluate_function(model, dataloader, criterion, device, num_classes):
+def evaluate_function(model, dataloader, criterion, device, config):
     model.eval()
     running_loss = 0.0
 
@@ -100,10 +112,14 @@ def evaluate_function(model, dataloader, criterion, device, num_classes):
             #inputs, labels = inputs.to(device), labels.to(device)
             vid, aud, labels = vid.to(device), aud.to(device), labels.to(device)
             outputs = model(vid, aud)
-            outputs = outputs.reshape(-1, num_classes)
-            labels = labels.reshape(-1, num_classes)
-            loss = criterion(outputs, labels)
-            
+
+            if config.data_name == 'va':
+                loss, mse_loss, ccc_loss = compute_VA_loss(outputs[0], outputs[1], labels, criterion)
+            else:
+                outputs = outputs.reshape(-1, config.num_classes)
+                labels = labels.reshape(-1, config.num_classes)
+                loss = criterion(outputs, labels)
+
             # _, predicted = outputs
 
             # perdiction.extend(predicted.cpu().numpy())

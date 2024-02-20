@@ -1,1 +1,2 @@
-from models.custom_transformer.basemodel import BaseModel
+from models.custom_transformer.basemodel import BaseModel, VAmodel
+

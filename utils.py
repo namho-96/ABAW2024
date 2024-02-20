@@ -31,9 +31,9 @@ def createDirectory(directory):
 
 def update_config(args):   
     config_module = importlib.import_module(args.config)
-    config_module.data_type = args.data_type
-    config_module.mode = args.mode
-    config_module.device = args.device
+    # config_module.data_type = args.data_type
+    # config_module.mode = args.mode
+    # config_module.device = args.device
     return config_module
     
 def denormalize(tensor):
@@ -85,6 +85,20 @@ def CCC(y_true, y_pred):
     std_pred = torch.sqrt(var_pred)
     ccc = (2. * rho * std_true * std_pred) / (var_true + var_pred + (mean_true - mean_pred) ** 2)
     return ccc
+
+
+def CCC_loss(x, y):
+    y = y.view(-1)
+    x = x.view(-1)
+    vx = x - torch.mean(x)
+    vy = y - torch.mean(y)
+    rho = torch.sum(vx * vy) / (torch.sqrt(torch.sum(torch.pow(vx, 2))) * torch.sqrt(torch.sum(torch.pow(vy, 2)))+1e-8)
+    x_m = torch.mean(x)
+    y_m = torch.mean(y)
+    x_s = torch.std(x)
+    y_s = torch.std(y)
+    ccc = 2*rho*x_s*y_s/(torch.pow(x_s, 2) + torch.pow(y_s, 2) + torch.pow(x_m - y_m, 2))
+    return 1-ccc
 
 
 def evaluate_performance(y_true, y_pred, data_name):

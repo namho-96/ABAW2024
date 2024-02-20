@@ -104,8 +104,7 @@ class BaseModel(nn.Module):
         self.norm2 = norm_layer(num_features)
         self.avgpool = nn.AdaptiveAvgPool1d(1)
         self.head = nn.Linear(num_features, num_classes) if num_classes > 0 else nn.Identity()
-        # self.softmax = nn.Softmax(dim=-1)
-        self.tanh = nn.Tanh()
+
 
     def forward_features(self, img, aud):
         aud = F.interpolate(aud, size=(768), mode='linear')
@@ -123,7 +122,70 @@ class BaseModel(nn.Module):
     def forward(self, img, aud):
         x = self.forward_features(img, aud)
         x = self.head(x)
-        # BCELoss를 쓸 때 맨뒤에 softmax 추가
-        x = self.tanh(x)
+
         return x
+
+
+class VAmodel(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.bs, self.sq, self.nf, self.nh = config.batch_size, config.sq_len, config.num_features, config.num_head
+
+        self.transformeria = ResPostBlock(self.nf, self.nh, qkv_bias=True, init_values=1e-5)
+        self.transformerai = ResPostBlock(self.nf, self.nh, qkv_bias=True, init_values=1e-5)
+
+        self.norm = nn.LayerNorm(self.nf * 2)
+        self.mlp = nn.Linear(self.nf * 2, self.nf)
+
+        self.transformer = ResPostBlock(self.nf, self.nh, qkv_bias=True, init_values=1e-5)
+
+        self.norm2 = nn.LayerNorm(self.nf)
+        # self.avgpool = nn.AdaptiveAvgPool1d(1)
+        # self.head = nn.Linear(config.num_features, config.num_classes) if config.num_classes > 0 else nn.Identity()
+
+        hs1, hs2, hs3 = config.hidden_size
+        self.feat_fc = nn.Conv1d(self.nf, hs1, kernel_size=1, padding=0)     # 768 -> 256
+
+        self.vhead = nn.Sequential(
+            nn.Linear(hs1, hs2),
+            nn.BatchNorm1d(hs2),
+            nn.Linear(hs2, hs3),
+            nn.BatchNorm1d(hs3),
+            nn.Linear(hs3, 1),
+        )
+        self.ahead = nn.Sequential(
+            nn.Linear(hs1, hs2),
+            nn.BatchNorm1d(hs2),
+            nn.Linear(hs2, hs3),
+            nn.BatchNorm1d(hs3),
+            nn.Linear(hs3, 1),
+        )
+
+    def av_va_fusion(self, img, aud):
+        aud = F.interpolate(aud, size=768, mode='linear')   # 1024 -> 768
+        trans_va = self.transformeria([img, aud])
+        trans_av = self.transformerai([aud, img])
+
+        x = torch.cat((trans_va, trans_av), 2)
+        x = self.norm(x)  # B L (C*2)
+        x = self.mlp(x)  # B L C
+
+        x = self.transformer([x, x])
+        x = self.norm2(x)
+
+        return x
+
+    def forward(self, img, aud):
+        x = self.av_va_fusion(img, aud)     # [bs, sq, nf]
+        x = x.permute(0, 2, 1)              # [bs, nf, sq]
+        x = self.feat_fc(x)                 # [bs, 256, sq]
+        x = x.permute(0, 2, 1)              # [bs, sq, 256]
+        x = torch.reshape(x, (self.bs * self.sq, -1))    # [bs * sq, 256]
+
+        vid = self.vhead(x)
+        aud = self.ahead(x)
+        vid = vid.view(self.bs, self.sq, -1)
+        aud = aud.view(self.bs, self.sq, -1)
+
+        return [vid, aud]
 

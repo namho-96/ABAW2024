@@ -2,7 +2,7 @@ import os
 import timm
 import torch.nn as nn
 from transformers import AutoModel, AutoConfig, Wav2Vec2FeatureExtractor
-from .custom_transformer import BaseModel
+from .custom_transformer import BaseModel, VAmodel
 
 def load_model(config_module):
     # num_classes 지정
@@ -77,4 +77,8 @@ def load_visual_model(config_module, model_name, train=False):
 def load_transformer_model(config_module):
     if config_module.model_name == 'base':
         model = BaseModel(config_module.num_features, config_module.num_head, config_module.num_classes)
+    elif config_module.model_name == 'va':
+        model = VAmodel(config_module)
+    else:
+        raise Exception("Wrong config_module.model_name")
     return model

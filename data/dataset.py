@@ -5,6 +5,11 @@ from PIL import Image, ImageFile
 from torch.utils.data import Dataset
 from torchvision import transforms
 import torch
+import json
+
+
+
+
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 # 학습 데이터 전처리
 train_transform = transforms.Compose([
@@ -242,6 +247,7 @@ class SequenceData(Dataset):
         self.feat_map = dict()
         self.sequence_list, self.label_list = self.make_sequence()
 
+
     def get_txt_contents(self, path):
         """get txt annotation contents, and return a dict which key is `frame_id`(aligned with 05d), value is `annotation`.
         In task `va`:, content is like {'00001': [0.1, 0.2], ...}
@@ -407,3 +413,96 @@ class SequenceData(Dataset):
         seq_label = torch.stack(seq_label)
         
         return seq_feat, aud_feat, seq_label
+
+
+class SequenceData_2(Dataset):
+    def __init__(self, feat_root, integrated_label_file, seq_len, task, mode, pad_mode='repeat_last'):
+        # Load integrated label file
+        with open(integrated_label_file, 'r') as f:
+            self.label_data = json.load(f)
+
+        self.feat_root = feat_root
+        self.seq_len = seq_len
+        self.task = task
+        self.pad_mode = pad_mode
+        # Generate sequence list based on mode
+        self.sequence_list = self._generate_sequence_list(mode)
+
+    def _generate_sequence_list(self, mode):
+        sequence_list = []
+        # Filter sequences based on mode (train, val, test)
+        sequence_list = []
+        for video_name, annotations in self.label_data.items():
+            for frame_id, label in annotations:
+                sequence_list.append((video_name, frame_id, label))
+        return sequence_list
+
+    def __len__(self):
+        return len(self.sequence_list)
+
+    def __getitem__(self, idx):
+
+        seq_name, frame_id, label = self.sequence_list[idx]
+        aud_name = seq_name.replace("_left", "").replace("_right", "")
+        # Assuming feature paths are structured as feat_root/task/video_name/frame_id.npy
+
+        # Load audio feature
+        aud_feat_path = os.path.join(self.feat_root, "audio", aud_name, f"{frame_id}.npy")
+        aud_feature = torch.from_numpy(np.load(aud_feat_path)).float().to("cuda:0")
+        aud_feature_normalized = (aud_feature - aud_feature.mean()) / aud_feature.std()
+
+        # Load sequence feature
+        seq_feat_path = os.path.join(self.feat_root, "spatial", seq_name, f"{frame_id}.npy")
+        seq_feature = torch.from_numpy(np.load(seq_feat_path)).float().to("cuda:0")
+        seq_feature_normalized = (seq_feature - seq_feature.mean()) / seq_feature.std()
+
+        # Convert label to tensor
+        if isinstance(label, list):  # For tasks with multiple labels per frame
+            label = torch.tensor(label).float()
+        else:  # For tasks with single label per frame
+            label = torch.tensor([label]).float()
+
+        return aud_feature_normalized, seq_feature_normalized, label
+
+
+
+def integrate_and_save_labels(label_root, mode, task, output_file):
+    integrated_labels = {}
+    mode_path = os.path.join(label_root, mode)
+    video_list = [x.split('.')[0] for x in sorted(os.listdir(mode_path)) if x.endswith('.txt')]
+    for video in video_list:
+        txt_path = os.path.join(mode_path, video + '.txt')
+        with open(txt_path, 'r') as f:
+            lines = f.readlines()
+            video_labels = []
+            for i, line in enumerate(lines):
+                if i == 0: continue  # Skip header
+                frame_id = f'{i:05d}'
+                # Assuming 'task' variable is defined outside this function. Adjust accordingly.
+                if task == 'va' or task == 'au':
+                    values = [float(value) for value in line.strip('\n').split(',')]
+                elif task == 'expr':
+                    values = int(line.strip('\n'))
+                video_labels.append((frame_id, values))
+            integrated_labels[video] = video_labels
+    with open(output_file, 'w') as f:
+        json.dump(integrated_labels, f, indent=1)
+
+
+if __name__ == '__main__':
+    task = 'va'
+    label_root = 'C:/Users/hms/Desktop/Code/dataset/6th ABAW Annotations/VA_Estimation_Challenge'
+    output_file = 'C:/Users/hms/Desktop/Code/dataset/6th ABAW Annotations/VA_Estimation_Challenge/{}_integrated_labels.json'.format(task)
+
+    # Train 데이터에 대한 통합 파일 저장
+    train_output_file = os.path.join(label_root, 'integrated_train_labels.json')
+    integrate_and_save_labels(label_root, 'Train_Set', task, train_output_file)
+
+    # Validation 데이터에 대한 통합 파일 저장
+    validation_output_file = os.path.join(label_root, 'integrated_validation_labels.json')
+    integrate_and_save_labels(label_root, 'Validation_Set', task, validation_output_file)
+
+
+
+
+

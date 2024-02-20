@@ -1,6 +1,6 @@
 import argparse
 import importlib
-from data.dataset import TemporalDataset, SpatialDataset, MultimodalDataset, SequenceData
+from data.dataset import TemporalDataset, SpatialDataset, MultimodalDataset, SequenceData, SequenceData_2
 from utils import save_sample_images, evaluate_performance, fix_seed, update_config
 from train import train_model, train_function, evaluate_function
 from torch.utils.data import DataLoader
@@ -12,9 +12,13 @@ from models.model import load_model
 from extract import *
 import logging
 import wandb
-wandb.init(project='ABAW2024')
-wandb.run.name = 'ABAW2024_va'
-wandb.run.save()
+
+
+def setup_wandb():
+    if not wandb.api.api_key:
+        wandb.login()
+    wandb.init(project='ABAW2024', name='ABAW2024_va')
+    wandb.run.save()
 
 
 def main(config_module):
@@ -23,6 +27,7 @@ def main(config_module):
     model = load_model(config_module)
     model.to(device)
     if config_module.mode == 'train':
+        setup_wandb()   # Initialize wandb only in training mode
         # data type(au, expr, va)에 따라서 ground truth 파일 경로 얻기
         feat_path = config_module.feat_path     # "C:/Users/hms/Desktop/Code/0.Datasets/Aff-Wild2/2024"
 
@@ -39,9 +44,10 @@ def main(config_module):
         elif config_module.data_type == 'multimodal':
             #dataset_train = MultimodalDataset(data_path, config_module.data_name, 'train')
             #dataset_val = MultimodalDataset(data_path, config_module.data_name, 'val')
-            
-            dataset_train = SequenceData(feat_path, data_path, 100, config_module.data_name, 'train')
-            dataset_val = SequenceData(feat_path, data_path, 100, config_module.data_name, 'val')
+            dataset_train = SequenceData(feat_path, data_path, config_module.sq_len, config_module.data_name, 'train')
+            dataset_val = SequenceData(feat_path, data_path, config_module.sq_len, config_module.data_name, 'val')
+            # dataset_train = SequenceData_2(feat_path, os.path.join(data_path, 'integrated_train_labels.json'), 100, config_module.data_name, 'train')
+            # dataset_val = SequenceData_2(feat_path, os.path.join(data_path, 'integrated_validation_labels.json'), 100, config_module.data_name, 'val')
             
         dataloader_train = DataLoader(dataset_train, batch_size=config_module.batch_size, shuffle=True, num_workers=config_module.num_workers)
         dataloader_val = DataLoader(dataset_val, batch_size=config_module.batch_size, shuffle=False, num_workers=config_module.num_workers)
@@ -49,11 +55,22 @@ def main(config_module):
         model = load_model(config_module)
         print(model)
         model.to(device)
-        
-        optimizer = optim.AdamW(model.parameters(), lr=config_module.lr)
-        # criterion = nn.CrossEntropyLoss()
-        # criterion = nn.BCELoss()
-        criterion = nn.MSELoss()
+
+        if config_module.optimizer == "adamw":
+            optimizer = optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=config_module.lr, betas=(0.9, 0.999), weight_decay=0.05)
+        elif config_module.optimizer == "adam":
+            optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=config_module.lr, betas=(0.9, 0.999))
+        else:
+            optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=config_module.lr, momentum=config_module.momentum, weight_decay=config_module)
+
+
+
+        if config_module.data_name == 'va':
+            criterion = nn.MSELoss()
+        else:
+            criterion = nn.CrossEntropyLoss()
+
+        # criterion = nn.MSELoss()
         scheduler = CosineAnnealingLR(optimizer, T_max=config_module.epochs)
         
         log_path = f"output/{config_module.model_name}_{config_module.data_name}_{config_module.data_type}"
@@ -64,18 +81,18 @@ def main(config_module):
         best_performance = 0.0
 
         for epoch in range(config_module.epochs):
-            model, train_loss = train_function(model, dataloader_train, criterion, optimizer, device, config_module.num_classes)
+            model, train_loss = train_function(model, dataloader_train, criterion, optimizer, device, config_module)
             
             print(f'Epoch {epoch+1}/{config_module.epochs}, Train Loss: {train_loss:.4f}')
             logging.info(f'Epoch {epoch}/{config_module.epochs - 1}, Train Loss: {train_loss:.4f}')
 
             scheduler.step()
-            performance, val_loss = evaluate_function(model, dataloader_val, criterion, device, config_module.num_classes)
+            performance, val_loss = evaluate_function(model, dataloader_val, criterion, device, config_module)
             
             print(f'Epoch {epoch+1}/{config_module.epochs}, Validation Loss: {val_loss:.4f}, Average CCC: {performance:.4f}')
             logging.info(f'Epoch {epoch}/{config_module.epochs - 1}, Validation Loss: {val_loss:.4f}, Average CCC: {performance:.4f}')
 
-            wandb.log({"Epoch": epoch, "Train Loss": train_loss, "Validation Loss": val_loss, "Performance": performance, 'lr': scheduler.get_last_lr()})
+            wandb.log({"Epoch": epoch, "Train Loss": train_loss, "Validation Loss": val_loss, "Performance": performance, 'lr': scheduler.get_last_lr()[0]})
 
             if performance > best_performance:      # Save Best Model.pt
                 best_val_loss = val_loss            # Update best validation loss
@@ -95,32 +112,31 @@ def main(config_module):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Deep Learning Model Configuration')
-    # Environments
-    parser.add_argument('--feat_path', default='./datasets/features', type=str, help='feature .npy path')
-    parser.add_argument('--annot_path', default='./datasets/6th ABAW Annotations/VA_Estimation_Challenge', type=str, help='annotation file path')
-    parser.add_argument('--device', default=0, type=int, help='Select GPU device')
-    parser.add_argument('--num_workers', default=4, type=int, help='num_workers')
+    # # Environments
+    # parser.add_argument('--feat_path', default='./datasets/features', type=str, help='feature .npy path')
+    # parser.add_argument('--annot_path', default='./datasets/6th ABAW Annotations/VA_Estimation_Challenge', type=str, help='annotation file path')
+    # parser.add_argument('--device', default=0, type=int, help='Select GPU device')
+    # parser.add_argument('--num_workers', default=4, type=int, help='num_workers')
+    #
+    # # Data
+    # parser.add_argument('--data_name', type=str, required=True, help='au/expr/va')
+    # parser.add_argument('--data_type', type=str, required=True, help='spatial/multimodal')
+    #
+    # # Model
+    # parser.add_argument('--num_classes', default='base', type=str, help='au/expr - 8, va - 2')
+    # parser.add_argument('--num_head', default=4, type=int, help='transformer head number')
+    # parser.add_argument('--num_features', default=768, type=int, help='feature dimension')
+    #
+    # # Training
+    # parser.add_argument('--mode',       type=str, required=True, help='train/inference/extract')
+    # parser.add_argument('--batch_size', default=768, type=int, help='training batch size')
+    # parser.add_argument('--epoch', default=100, type=int, help='training epoch')
+    # parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
 
-    # Data
-    parser.add_argument('--data_name', type=str, required=True, help='au/expr/va')
-    parser.add_argument('--data_type', type=str, required=True, help='spatial/multimodal')
-
-    # Model
-    parser.add_argument('--num_classes', default='base', type=str, help='au/expr - 8, va - 2')
-    parser.add_argument('--num_head', default=4, type=int, help='transformer head number')
-    parser.add_argument('--num_features', default=768, type=int, help='feature dimension')
-
-    # Training
-    parser.add_argument('--mode',       type=str, required=True, help='train/inference/extract')
-    parser.add_argument('--batch_size', default=768, type=int, help='training batch size')
-    parser.add_argument('--epoch', default=100, type=int, help='training epoch')
-    parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
     parser.add_argument('--config', type=str, required=True, help='Config module name to use')
-
     args = parser.parse_args()
 
     config_module = update_config(args)
-    wandb.config.update(args)
 
     fix_seed()
     main(config_module)
