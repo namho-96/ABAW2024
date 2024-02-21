@@ -33,8 +33,8 @@ def setup_dataset(config):
     else:
         raise ValueError(f'Wrong Data type : {config.data_type}')
 
-    dataloader_train = DataLoader(dataset_train, batch_size=config.batch_size, shuffle=True, num_workers=config.num_workers, drop_last=True, pin_memory=True)
-    dataloader_val = DataLoader(dataset_val, batch_size=config.batch_size, shuffle=False, num_workers=config.num_workers, drop_last=True, pin_memory=True)
+    dataloader_train = DataLoader(dataset_train, batch_size=config.batch_size, shuffle=True, num_workers=config.num_workers, drop_last=True)
+    dataloader_val = DataLoader(dataset_val, batch_size=config.batch_size, shuffle=False, num_workers=config.num_workers, drop_last=True)
 
     return dataloader_train, dataloader_val
 
@@ -42,7 +42,7 @@ def setup_dataset(config):
 def setup_training(config):
     # Set device
     device = torch.device(f"cuda:{config.device}" if torch.cuda.is_available() else "cpu")
-    logging.info(f"\nUsing device: {device}")
+    logging.info(f"Using device: {device}")
 
     # Load model
     model = load_model(config)
