@@ -17,11 +17,18 @@ def compute_VA_loss(Vout, Aout, label, criterion):
     label = label.view(bz * seq, -1)
     Vout = Vout.view(bz * seq, -1)
     Aout = Aout.view(bz * seq, -1)
-    ccc_loss = CCC_loss(Vout[:, 0], label[:, 0]) + CCC_loss(Aout[:, 0], label[:, 1])
+
+    ccc_valence_loss, ccc_valence = CCC_loss(Vout[:, 0], label[:, 0])
+    ccc_arousal_loss, ccc_arousal = CCC_loss(Aout[:, 0], label[:, 1])
+
+    ccc_loss = ccc_valence_loss + ccc_arousal_loss
+    ccc_avg = 0.5 * (ccc_valence + ccc_arousal)
+    # ccc_loss = CCC_loss(Vout[:, 0], label[:, 0]) + CCC_loss(Aout[:, 0], label[:, 1])       # 0 - arousal / 1 - valence
+
     mse_loss = criterion(Vout[:, 0], label[:, 0]) + criterion(Aout[:, 0], label[:, 1])
 
     loss = mse_loss
-    return loss, mse_loss, ccc_loss
+    return loss, mse_loss, ccc_loss, ccc_avg
 
 
 def train_model(model, dataloader, criterion, optimizer, config_module, device, num_epochs=100):
@@ -71,11 +78,12 @@ def train_model(model, dataloader, criterion, optimizer, config_module, device, 
 
     return model
 
+
 # 학습 함수 정의
 def train_function(model, dataloader, criterion, optimizer, device, config):
     model.train()
     running_loss = 0.0
-    progress_bar = tqdm(dataloader, desc="Loss: 0.0000")
+    progress_bar = tqdm(dataloader, desc="Initializing")
 
     for vid, aud, labels in progress_bar:
         #inputs[0], inputs[1], labels = inputs[0].to(device), inputs[1].to(device), labels.to(device)
@@ -84,7 +92,7 @@ def train_function(model, dataloader, criterion, optimizer, device, config):
         outputs = model(vid, aud)
 
         if config.data_name == 'va':
-            loss, mse_loss, ccc_loss = compute_VA_loss(outputs[0], outputs[1], labels, criterion)
+            loss, mse_loss, ccc_loss, ccc_avg = compute_VA_loss(outputs[0], outputs[1], labels, criterion)
         else:
             outputs = outputs.reshape(-1, config.num_classes).type(torch.float32)
             labels = labels.reshape(-1, config.num_classes).type(torch.float32)  # shape 일치
@@ -95,47 +103,44 @@ def train_function(model, dataloader, criterion, optimizer, device, config):
 
         running_loss += loss.item()
         average_loss = running_loss / (progress_bar.n + 1)          # progress_bar.n은 현재까지 처리된 배치의 수입니다.
-        progress_bar.set_description(f"Loss: {average_loss:.4f}")
+        progress_bar.set_description(f"Loss: {loss.item():.4f}, Avg_Loss: {average_loss:.4f}, MSE_Loss: {mse_loss:.4f}, CCC_Loss: {ccc_loss:.4f}")
 
     train_loss = running_loss / len(dataloader)
     return model, train_loss
+
 
 # 평가 함수 정의
 def evaluate_function(model, dataloader, criterion, device, config):
     model.eval()
     running_loss = 0.0
+    progress_bar = tqdm(dataloader, desc="Initializing")
 
     total_performance = []
 
     with torch.no_grad():
-        for vid, aud, labels in tqdm(dataloader):
+        for vid, aud, labels in progress_bar:
             #inputs, labels = inputs.to(device), labels.to(device)
             vid, aud, labels = vid.to(device), aud.to(device), labels.to(device)
             outputs = model(vid, aud)
 
             if config.data_name == 'va':
-                loss, mse_loss, ccc_loss = compute_VA_loss(outputs[0], outputs[1], labels, criterion)
+                loss, mse_loss, ccc_loss, ccc_avg = compute_VA_loss(outputs[0], outputs[1], labels, criterion)
+                total_performance.append(ccc_avg)
+                avg_performance = sum(total_performance) / len(total_performance)
+                progress_bar.set_description(f"Loss: {loss.item():.4f}, Avg CCC: {avg_performance:.4f}")
             else:
                 outputs = outputs.reshape(-1, config.num_classes)
                 labels = labels.reshape(-1, config.num_classes)
                 loss = criterion(outputs, labels)
+                progress_bar.set_description(f"Loss: {loss.item():.4f}")
 
-            # _, predicted = outputs
-
-            # perdiction.extend(predicted.cpu().numpy())
-            # gt.extend(labels.cpu().numpy())
-            
             running_loss += loss.item()
-
-            CCC_arousal = CCC(labels[:, 0], outputs[:, 0])
-            CCC_valence = CCC(labels[:, 1], outputs[:, 1])
-            performance = 0.5 * (CCC_arousal.item() + CCC_valence.item())
-
-            total_performance.append(performance)
+            # CCC_arousal = CCC(labels[:, 0], outputs[0])
+            # CCC_valence = CCC(labels[:, 1], outputs[1])
+            # performance = 0.5 * (CCC_arousal.item() + CCC_valence.item())
 
     test_loss = running_loss / len(dataloader)        
     # classification_rep = classification_report(gt, perdiction, output_dict=True, zero_division=1)
-
     avg_performance = sum(total_performance) / len(total_performance)
 
     return avg_performance, test_loss

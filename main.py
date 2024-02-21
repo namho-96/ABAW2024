@@ -49,8 +49,8 @@ def main(config_module):
             # dataset_train = SequenceData_2(feat_path, os.path.join(data_path, 'integrated_train_labels.json'), 100, config_module.data_name, 'train')
             # dataset_val = SequenceData_2(feat_path, os.path.join(data_path, 'integrated_validation_labels.json'), 100, config_module.data_name, 'val')
             
-        dataloader_train = DataLoader(dataset_train, batch_size=config_module.batch_size, shuffle=True, num_workers=config_module.num_workers)
-        dataloader_val = DataLoader(dataset_val, batch_size=config_module.batch_size, shuffle=False, num_workers=config_module.num_workers)
+        dataloader_train = DataLoader(dataset_train, batch_size=config_module.batch_size, shuffle=True, num_workers=config_module.num_workers, drop_last=True)
+        dataloader_val = DataLoader(dataset_val, batch_size=config_module.batch_size, shuffle=False, num_workers=config_module.num_workers, drop_last=True)
         
         model = load_model(config_module)
         print(model)
@@ -63,14 +63,11 @@ def main(config_module):
         else:
             optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=config_module.lr, momentum=config_module.momentum, weight_decay=config_module)
 
-
-
         if config_module.data_name == 'va':
             criterion = nn.MSELoss()
         else:
             criterion = nn.CrossEntropyLoss()
 
-        # criterion = nn.MSELoss()
         scheduler = CosineAnnealingLR(optimizer, T_max=config_module.epochs)
         
         log_path = f"output/{config_module.model_name}_{config_module.data_name}_{config_module.data_type}"

@@ -98,7 +98,7 @@ def CCC_loss(x, y):
     x_s = torch.std(x)
     y_s = torch.std(y)
     ccc = 2*rho*x_s*y_s/(torch.pow(x_s, 2) + torch.pow(y_s, 2) + torch.pow(x_m - y_m, 2))
-    return 1-ccc
+    return 1-ccc, ccc
 
 
 def evaluate_performance(y_true, y_pred, data_name):
