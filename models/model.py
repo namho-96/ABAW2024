@@ -8,7 +8,7 @@ def load_model(config_module):
     # num_classes 지정
     
     if config_module.mode == 'train': # For train model(transformer, visual extractor)
-        if config_module.data_type == 'spatial': # Fine-tune
+        if config_module.data_type == 'spatial':    # Fine-tune
             model = load_visual_model(config_module.visual_model, train=True)
         elif config_module.data_type == 'temporal':
             pass
@@ -16,14 +16,14 @@ def load_model(config_module):
             model = load_transformer_model(config_module)
         return model
         
-    elif config_module.mode == 'inference': # For inference
+    elif config_module.mode == 'inference':     # For inference
         audio_model = load_audio_model(config_module.audio_model)
         visual_model = load_visual_model(config_module.visual_model, train=False)
         #temporal_model = load_temporal_model
         transformer_model = load_transformer_model(config_module)
         return audio_model, visual_model, transformer_model
         
-    elif config_module.mode == 'extract': # For feature extract
+    elif config_module.mode == 'extract':       # For feature extract
         if config_module.data_type == 'audio':
             model = load_audio_model(config_module.audio_model)
         elif config_module.data_type == 'spatial':
@@ -40,7 +40,7 @@ def load_audio_model(model_path):
     return model
     
 def load_visual_model(config_module, model_name, train=False):
-    if  model_name == 'swin':
+    if model_name == 'swin':
         # Swin Transformer 모델 로드
         model = AutoModel.from_pretrained(model_name)
     else:

@@ -140,6 +140,7 @@ class VAmodel(nn.Module):
         self.transformer = ResPostBlock(self.nf, self.nh, qkv_bias=True, init_values=1e-5)
 
         self.norm2 = nn.LayerNorm(self.nf)
+        self.LeakyReLU = nn.LeakyReLU(0.1)
         # self.avgpool = nn.AdaptiveAvgPool1d(1)
         # self.head = nn.Linear(config.num_features, config.num_classes) if config.num_classes > 0 else nn.Identity()
 
@@ -179,6 +180,7 @@ class VAmodel(nn.Module):
         x = self.av_va_fusion(img, aud)     # [bs, sq, nf]
         x = x.permute(0, 2, 1)              # [bs, nf, sq]
         x = self.feat_fc(x)                 # [bs, 256, sq]
+        x = self.LeakyReLU(x)
         x = x.permute(0, 2, 1)              # [bs, sq, 256]
         x = torch.reshape(x, (self.bs * self.sq, -1))    # [bs * sq, 256]
 
