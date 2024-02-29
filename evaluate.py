@@ -55,8 +55,6 @@ def evaluate_function(args):
         
         label_df = label_df[mask]
         pred_df = pred_df[mask]
-                
-        print(pred_df[0], label_df[0])
         
         if args.task == 'va':
             prediction_valence.extend(pred_df[:, 0])
