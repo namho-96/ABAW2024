@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from timm.models.layers import DropPath, to_2tuple, trunc_normal_       
+from timm.models.layers import DropPath, to_2tuple       
         
 class CustomMlp(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, bias=True, drop=0.):
@@ -25,18 +25,6 @@ class CustomMlp(nn.Module):
         x = self.drop2(x)
         return x        
         
-class DropPath(nn.Module):
-    """Drop paths (Stochastic Depth) per sample  (when applied in main path of residual blocks).
-    """
-    def __init__(self, drop_prob: float = 0., scale_by_keep: bool = True):
-        super().__init__()
-        self.drop_prob = drop_prob
-        self.scale_by_keep = scale_by_keep
-
-    def forward(self, x):
-        return drop_path(x, self.drop_prob, self.training, self.scale_by_keep)
-        
-        
 class CrossAttention(nn.Module):
     def __init__(self, dim, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0.):
         super().__init__()
@@ -55,7 +43,6 @@ class CrossAttention(nn.Module):
         x2 = x[1]
         
         B, N, C = x1.shape
-        
         q = x1.reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
         kv = self.kv(x2).reshape(B, N, 2, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         k, v = kv.unbind(0)   # make torchscript happy (cannot use tensor as tuple)
@@ -94,6 +81,7 @@ class ResPostBlock(nn.Module):
             nn.init.constant_(self.norm2.weight, self.init_values)
 
     def forward(self, x):
+        #print(f"Second : {x[0].shape}, {x[1].shape}")
         x = self.attn(x)
         x = x + self.drop_path1(self.norm1(x))
         x = x + self.drop_path2(self.norm2(self.mlp(x)))
@@ -117,33 +105,89 @@ class BaseModel(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool1d(1)
         self.head = nn.Linear(num_features, num_classes) if num_classes > 0 else nn.Identity()
 
-        self.apply(self._init_weights)
 
-    def _init_weights(self, m):
-        if isinstance(m, nn.Linear):
-            trunc_normal_(m.weight, std=.02)
-            if isinstance(m, nn.Linear) and m.bias is not None:
-                nn.init.constant_(m.bias, 0)
-        elif isinstance(m, nn.LayerNorm):
-            nn.init.constant_(m.bias, 0)
-            nn.init.constant_(m.weight, 1.0)
-
-    def forward_features(self, img, aud):        
-        transia = self.transformeriv([img, aud])
-        transai = self.transformervi([aud, img])
+    def forward_features(self, img, aud):
+        aud = F.interpolate(aud, size=(768), mode='linear')
+        transia = self.transformeria([img, aud])    # [[768]+[768]] -> [768]
+        transai = self.transformerai([aud, img])    # [[768]+[768]] -> [768]
         
         x = torch.cat((transia, transai), 2)
-        x = self.norm(x) # B L (C*2)
-        x = self.mlp(x)# B L C
+        x = self.norm(x)        # B L (C*2)
+        x = self.mlp(x)         # B L C
         
-        x = self.transformer(x)
-        
+        x = self.transformer([x, x])
         x = self.norm2(x)  
-        x = self.avgpool(x.transpose(1, 2))  # B C 1
-        x = torch.flatten(x, 1)
         return x
 
     def forward(self, img, aud):
         x = self.forward_features(img, aud)
         x = self.head(x)
+
         return x
+
+
+class VAmodel(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.bs, self.sq, self.nf, self.nh = config.batch_size, config.sq_len, config.num_features, config.num_head
+
+        self.transformeria = ResPostBlock(self.nf, self.nh, qkv_bias=True, init_values=1e-5)
+        self.transformerai = ResPostBlock(self.nf, self.nh, qkv_bias=True, init_values=1e-5)
+
+        self.norm = nn.LayerNorm(self.nf * 2)
+        self.mlp = nn.Linear(self.nf * 2, self.nf)
+
+        self.transformer = ResPostBlock(self.nf, self.nh, qkv_bias=True, init_values=1e-5)
+
+        self.norm2 = nn.LayerNorm(self.nf)
+        self.LeakyReLU = nn.LeakyReLU(0.1)
+        # self.avgpool = nn.AdaptiveAvgPool1d(1)
+        # self.head = nn.Linear(config.num_features, config.num_classes) if config.num_classes > 0 else nn.Identity()
+
+        hs1, hs2, hs3 = config.hidden_size
+        self.feat_fc = nn.Conv1d(self.nf, hs1, kernel_size=1, padding=0)     # 768 -> 256
+
+        self.vhead = nn.Sequential(
+            nn.Linear(hs1, hs2),
+            nn.BatchNorm1d(hs2),
+            nn.Linear(hs2, hs3),
+            nn.BatchNorm1d(hs3),
+            nn.Linear(hs3, 1),
+        )
+        self.ahead = nn.Sequential(
+            nn.Linear(hs1, hs2),
+            nn.BatchNorm1d(hs2),
+            nn.Linear(hs2, hs3),
+            nn.BatchNorm1d(hs3),
+            nn.Linear(hs3, 1),
+        )
+
+    def av_va_fusion(self, img, aud):
+        aud = F.interpolate(aud, size=768, mode='linear')   # 1024 -> 768
+        trans_va = self.transformeria([img, aud])
+        trans_av = self.transformerai([aud, img])
+
+        x = torch.cat((trans_va, trans_av), 2)
+        x = self.norm(x)  # B L (C*2)
+        x = self.mlp(x)  # B L C
+
+        x = self.transformer([x, x])
+        x = self.norm2(x)
+
+        return x
+
+    def forward(self, img, aud):
+        x = self.av_va_fusion(img, aud)     # [bs, sq, nf]
+        x = x.permute(0, 2, 1)              # [bs, nf, sq]
+        x = self.feat_fc(x)                 # [bs, 256, sq]
+        x = self.LeakyReLU(x)
+        x = x.permute(0, 2, 1)              # [bs, sq, 256]
+        x = torch.reshape(x, (self.bs * self.sq, -1))    # [bs * sq, 256]
+
+        vid = self.vhead(x)
+        aud = self.ahead(x)
+        vid = vid.view(self.bs, self.sq, -1)
+        aud = aud.view(self.bs, self.sq, -1)
+
+        return [vid, aud]
+

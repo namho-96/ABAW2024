@@ -1,56 +1,51 @@
 import argparse
-import importlib
+from utils import *
+from train import *
+from prediction import predict_function
+from data.dataset import setup_dataset
 import logging
-from models.model import load_pretrained_model
-from data.dataset import  TemporalDataset, SpatialDataset
-from utils import save_sample_images, evaluate_performance
-from train import train_model
-from torch.utils.data import DataLoader
-import torch
-import torch.nn as nn
-import torch.optim as optim
 
-def main(config_module):
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    print("Using device:", device)
+logging.getLogger().setLevel(logging.INFO)
 
-    print(config_module)
+def main(config):
 
-    # data type(au, expr, va)에 따라서 ground truth 파일 경로 얻기
+    if config.mode == 'train':
+        # 학습 설정
+        device, model, optimizer, scheduler, criterion = setup_training(config)
 
-    if config_module.data_name == 'au':
-        data_path = 'data/AU_Detection_Challenge'        
-    elif config_module.data_name == 'expr':
-        data_path = 'data/EXPR_Detection_Challenge'
-    elif config_module.data_name == 'va':
-        data_path = 'data/VA_Detection_Challenge'
-
-    if config_module.data_type == 'spatial':
-    
-        dataset_train = SpatialDataset(data_path, config_module.data_name, 'train')
-        dataset_val = SpatialDataset(data_path, config_module.data_name, 'val')
-
-    dataloader_train = DataLoader(dataset_train, batch_size=config_module.batch_size, shuffle=True)
-    dataloader_val = DataLoader(dataset_val, batch_size=config_module.batch_size, shuffle=False)
-
-    for epoch in range(config_module.epochs):
-        for inputs, labels in dataloader_train:
-            #inputs, labels = inputs.to(device), labels.to(device)
-            print("inputs :",  inputs,"labels : ", labels)
-            performance = evaluate_performance(labels, labels, config_module.data_name)
-            print(f"Performance: {performance}")
-            break
+        # 이어서 학습할 경우 체크포인트 로드
+        start_epoch = 0
+        if config.resume:
+            model, optimizer, start_epoch = load_checkpoint(model, optimizer, config)
             
+        log_path = setup_log(config)    # wandb & log 설정
+
+        dataloader_train, dataloader_val = setup_dataset(config)    # 데이터 로드
+
+        best_performance = float('-inf')
+        for epoch in range(start_epoch, config.epochs):
+            # Train
+            model, train_loss = train_function(model, dataloader_train, criterion, optimizer, device, config)
+            # Validate
+            val_loss, performance = evaluate_function(model, dataloader_val, criterion, device, config)
+            # 로깅 및 체크포인트 저장
+            best_performance = log_and_checkpoint(epoch, model, optimizer, train_loss, val_loss, performance, scheduler, log_path, best_performance, config)
+            scheduler.step()
+
+    elif config.mode == 'predict':
+        predict_function(config) # 최종 txt 파일 생성 함수
+        
+    else:
+        assert ValueError(f"Unknown mode: {config.mode}")
+        
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Deep Learning Model Configuration')
     parser.add_argument('--config', type=str, required=True, help='Config module name to use')
-    #parser.add_argument('--model_name', type=str, required=True, help='Model module name to use')
-    parser.add_argument('--data_type', type=str, required=True, help='Model module name to use')
     args = parser.parse_args()
 
-    config_module = importlib.import_module(args.config)
-    #config_module.model_name = args.model_name
-    config_module.data_type = args.data_type
-    
-    main(config_module)
+    config_module = update_config(args)
 
+    fix_seed()
+    # main_ old(config_module)
+    main(config_module)

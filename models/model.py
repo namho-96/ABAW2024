@@ -2,28 +2,25 @@ import os
 import timm
 import torch.nn as nn
 from transformers import AutoModel, AutoConfig, Wav2Vec2FeatureExtractor
-from .custom_transformer import BaseModel
+from .custom_transformer import BaseModel, VAmodel, BaseModel2, BaseModel3
 
 def load_model(config_module):
     # num_classes 지정
     
     if config_module.mode == 'train': # For train model(transformer, visual extractor)
-        if config_module.data_type == 'spatial': # Fine-tune
+        if config_module.data_type == 'spatial':    # Fine-tune
             model = load_visual_model(config_module.visual_model, train=True)
         elif config_module.data_type == 'temporal':
             pass
-        elif config_module.data_type == 'transformer':
+        elif config_module.data_type == 'multimodal':
             model = load_transformer_model(config_module)
-        return model                        
+        return model
         
-    elif config_module.mode == 'inference': # For inference
-        audio_model = load_audio_model(config_module.audio_model)
-        visual_model = load_visual_model(config_module.visual_model, train=False)
-        #temporal_model = load_temporal_model
+    elif config_module.mode == 'predict':     # For inference
         transformer_model = load_transformer_model(config_module)
-        return audio_model, visual_model, transformer_model
+        return transformer_model
         
-    elif config_module.mode == 'extract': # For feature extract
+    elif config_module.mode == 'extract':       # For feature extract
         if config_module.data_type == 'audio':
             model = load_audio_model(config_module.audio_model)
         elif config_module.data_type == 'spatial':
@@ -39,8 +36,8 @@ def load_audio_model(model_path):
     model = Wav2Vec2FeatureExtractor.from_pretrained(model_path)
     return model
     
-def load_visual_model(model_name, train=False):
-    if  model_name == 'swin':
+def load_visual_model(config_module, model_name, train=False):
+    if model_name == 'swin':
         # Swin Transformer 모델 로드
         model = AutoModel.from_pretrained(model_name)
     else:
@@ -76,5 +73,13 @@ def load_visual_model(model_name, train=False):
     
 def load_transformer_model(config_module):
     if config_module.model_name == 'base':
-        model = BaseModel(config_module.num_features, config_module.num_classes)
+        model = BaseModel(config_module.num_features, config_module.num_head, config_module.num_classes)
+    elif config_module.model_name == 'va':
+        model = VAmodel(config_module)
+    elif config_module.model_name == 'base2':
+        model = BaseModel2(config_module.num_features, config_module.num_head, config_module.num_classes)
+    elif config_module.model_name == 'base3':
+        model = BaseModel3(config_module.num_features, config_module.num_head, config_module.num_classes)
+    else:
+        raise Exception("Wrong config_module.model_name")
     return model
