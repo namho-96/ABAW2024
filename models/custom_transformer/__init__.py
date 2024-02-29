@@ -1,2 +1,2 @@
-from models.custom_transformer.basemodel import BaseModel, VAmodel
+from models.custom_transformer.basemodel import BaseModel, VAmodel, DeepMixAttention
 

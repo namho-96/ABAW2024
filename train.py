@@ -1,3 +1,4 @@
+from torchviz import make_dot
 import torch
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from tqdm import tqdm
@@ -7,19 +8,21 @@ import os
 from utils import evaluate_performance
 from sklearn.metrics import classification_report
 from tqdm import tqdm
-from utils import CCC, CCC_loss
+from utils import CCC_loss, CCC_score
 
 
 def compute_VA_loss(Vout, Aout, label, criterion):
-    Vout = torch.clamp(Vout, -1, 1)
-    Aout = torch.clamp(Aout, -1, 1)
+    Vout = torch.clamp(Vout, -1, 1)     # [bs, sq, 1]
+    Aout = torch.clamp(Aout, -1, 1)     # [bs, sq, 1]
     bz, seq, _ = Vout.shape
-    label = label.view(bz * seq, -1)
+    label = label.view(bz * seq, -1)        # [bs, sq, 2]
     Vout = Vout.view(bz * seq, -1)
     Aout = Aout.view(bz * seq, -1)
 
     ccc_valence_loss, ccc_valence = CCC_loss(Vout[:, 0], label[:, 0])
     ccc_arousal_loss, ccc_arousal = CCC_loss(Aout[:, 0], label[:, 1])
+
+    # logging.info(f"ccc_valence_loss:{ccc_valence_loss:.4}, ccc_arousal_loss:{ccc_arousal_loss:.4}")
 
     ccc_loss = ccc_valence_loss + ccc_arousal_loss
     ccc_avg = 0.5 * (ccc_valence + ccc_arousal)
@@ -27,8 +30,8 @@ def compute_VA_loss(Vout, Aout, label, criterion):
 
     mse_loss = criterion(Vout[:, 0], label[:, 0]) + criterion(Aout[:, 0], label[:, 1])
 
-    loss = mse_loss
-    return loss, mse_loss, ccc_loss, ccc_avg
+    loss = ccc_loss
+    return loss, mse_loss, ccc_loss, ccc_avg, [ccc_valence, ccc_arousal]
 
 
 def train_model(model, dataloader, criterion, optimizer, config_module, device, num_epochs=100):
@@ -51,6 +54,7 @@ def train_model(model, dataloader, criterion, optimizer, config_module, device, 
 
             # 순전파
             outputs = model(inputs)
+
             loss = criterion(outputs, labels)
 
             # 역전파 및 최적화
@@ -84,6 +88,7 @@ def train_function(model, dataloader, criterion, optimizer, device, config):
     model.train()
     running_loss = 0.0
     progress_bar = tqdm(dataloader, desc="Initializing")
+    vis_model = config.vis
 
     for vid, aud, labels in progress_bar:
         #inputs[0], inputs[1], labels = inputs[0].to(device), inputs[1].to(device), labels.to(device)
@@ -92,7 +97,10 @@ def train_function(model, dataloader, criterion, optimizer, device, config):
         outputs = model(vid, aud)
 
         if config.data_name == 'va':
-            loss, mse_loss, ccc_loss, ccc_avg = compute_VA_loss(outputs[0], outputs[1], labels, criterion)
+            loss, mse_loss, ccc_loss, ccc_avg, _ = compute_VA_loss(outputs[0], outputs[1], labels, criterion)
+            if vis_model:
+                make_dot(outputs[0].mean(), params=dict(model.named_parameters()), show_attrs=True, show_saved=True).render("model_arch", format="png")
+                vis_model = False
         else:
             outputs = outputs.reshape(-1, config.num_classes).type(torch.float32)
             labels = labels.reshape(-1, config.num_classes).type(torch.float32)  # shape 일치
@@ -103,7 +111,7 @@ def train_function(model, dataloader, criterion, optimizer, device, config):
 
         running_loss += loss.item()
         average_loss = running_loss / (progress_bar.n + 1)          # progress_bar.n은 현재까지 처리된 배치의 수입니다.
-        progress_bar.set_description(f"Loss: {loss.item():.4f}, Avg_Loss: {average_loss:.4f}, MSE_Loss: {mse_loss:.4f}, CCC_Loss: {ccc_loss:.4f}")
+        progress_bar.set_description(f"Batch_Loss: {loss.item():.4f}, Avg_Loss: {average_loss:.4f}, CCC_Loss: {ccc_loss:.4f}")
 
     train_loss = running_loss / len(dataloader)
     return model, train_loss
@@ -116,6 +124,10 @@ def evaluate_function(model, dataloader, criterion, device, config):
     progress_bar = tqdm(dataloader, desc="Initializing")
 
     total_performance = []
+    prediction_valence = []
+    prediction_arousal = []
+    gt_valence = []
+    gt_arousal = []
 
     with torch.no_grad():
         for vid, aud, labels in progress_bar:
@@ -124,10 +136,17 @@ def evaluate_function(model, dataloader, criterion, device, config):
             outputs = model(vid, aud)
 
             if config.data_name == 'va':
-                loss, mse_loss, ccc_loss, ccc_avg = compute_VA_loss(outputs[0], outputs[1], labels, criterion)
-                total_performance.append(ccc_avg)
-                avg_performance = sum(total_performance) / len(total_performance)
-                progress_bar.set_description(f"Loss: {loss.item():.4f}, Avg CCC: {avg_performance:.4f}")
+                loss, mse_loss, ccc_loss, ccc_avg, va = compute_VA_loss(outputs[0], outputs[1], labels, criterion)
+                # total_performance.append(sum(va))
+                # avg_performance = sum(total_performance) / len(total_performance)
+
+                prediction_valence.extend(outputs[0][:, :, 0].cpu().numpy())            # [bs, sq]
+                prediction_arousal.extend(outputs[1][:, :, 0].cpu().numpy())            # [bs, sq]
+                gt_valence.extend(labels[:, :, 0].cpu().numpy())                        # [bs, sq]
+                gt_arousal.extend(labels[:, :, 1].cpu().numpy())
+
+                # progress_bar.set_description(f"Batch_Loss: {loss.item():.4f}, Avg CCC: {avg_performance:.4f}, "
+                #                              f"Valence CCC: {va[0]:.4f}, Arousal CCC: {va[1]:.4f}")
             else:
                 outputs = outputs.reshape(-1, config.num_classes)
                 labels = labels.reshape(-1, config.num_classes)
@@ -141,7 +160,9 @@ def evaluate_function(model, dataloader, criterion, device, config):
 
     test_loss = running_loss / len(dataloader)        
     # classification_rep = classification_report(gt, perdiction, output_dict=True, zero_division=1)
-    avg_performance = sum(total_performance) / len(total_performance)
+    # avg_performance = sum(total_performance) / len(total_performance)
+    avg_performance = 0.5 * (CCC_score(prediction_valence, gt_valence) + CCC_score(prediction_arousal, gt_arousal))
 
     return avg_performance, test_loss
+
 

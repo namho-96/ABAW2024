@@ -18,3 +18,8 @@ tqdm
 timm
 natsort
 wandb
+torchviz
+
+# torchviz와 graphviz 설치 필요
+# https://graphviz.org/download/
+# 환경변수 추가 후 재부팅

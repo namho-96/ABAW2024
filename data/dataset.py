@@ -6,8 +6,7 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 import torch
 import json
-
-
+import h5py
 
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -212,8 +211,8 @@ class MultimodalDataset(Dataset):
         label_tensor = torch.tensor(label, dtype=torch.float32)
 
         return [spatial_feature, audio_feature], label_tensor
-    
-    
+
+
 class SequenceData(Dataset):
     def __init__(self,
                  feat_root,
@@ -238,7 +237,7 @@ class SequenceData(Dataset):
             label_root = os.path.join(label_root, 'Validation_Set')
         elif mode == 'test':
             label_root = os.path.join(label_root, 'Test_Set')
-            
+
         self.feat_root = feat_root
         self.label_root = label_root
         self.seq_len = seq_len
@@ -246,7 +245,6 @@ class SequenceData(Dataset):
         self.pad_mode = pad_mode
         self.feat_map = dict()
         self.sequence_list, self.label_list = self.make_sequence()
-
 
     def get_txt_contents(self, path):
         """get txt annotation contents, and return a dict which key is `frame_id`(aligned with 05d), value is `annotation`.
@@ -375,45 +373,46 @@ class SequenceData(Dataset):
             seq_label_list += crt_label_list
 
         return seq_id_list, seq_label_list
-    
+
+    def open_h5(self):
+        for feat_name in ["audio", "spatial"]:
+            self.feat_map[feat_name] = h5py.File(
+                os.path.join(self.feat_root, feat_name + '_features.h5'), 'r')
+
+    def close_h5(self):
+        for feat_name in ["audio", "spatial"]:
+            self.feat_map[feat_name].close()
+
     def __len__(self):
         return len(self.sequence_list)
 
     def __getitem__(self, idx):
+        self.open_h5()
         seq_list = self.sequence_list[idx]
         lb_list = self.label_list[idx]
         assert len(seq_list) == self.seq_len == len(lb_list)
-        
+
         aud_feat = list()
         seq_feat = list()
         seq_label = list()
-        
+
         for seq_name, label in zip(seq_list, lb_list):
             aud_name = seq_name.replace("_left", "").replace("_right", "")
-
-            aud_feature = torch.from_numpy(np.load(os.path.join(self.feat_root, "audio", aud_name + ".npy"))).to("cuda:0")
-            seq_feature = torch.from_numpy(np.load(os.path.join(self.feat_root, "spatial", seq_name + ".npy"))).to("cuda:0")
-
+            aud_feature = np.asarray(self.feat_map["audio"][aud_name.split("/")[0]][aud_name.split("/")[1]])
+            seq_feature = np.asarray(self.feat_map["spatial"][seq_name.split("/")[0]][seq_name.split("/")[1]])
             aud_feature_normalized = (aud_feature - aud_feature.mean()) / aud_feature.std()
             seq_feature_normalized = (seq_feature - seq_feature.mean()) / seq_feature.std()
 
-            # aud_feat.append(np.load(os.path.join(self.feat_root, "audio", aud_name + ".npy")))
-            # seq_feat.append(np.load(os.path.join(self.feat_root, "spatial", seq_name + ".npy")))
-
             aud_feat.append(aud_feature_normalized)
             seq_feat.append(seq_feature_normalized)
-            seq_label.append(torch.tensor(label).float().to("cuda:0"))
+            seq_label.append(label)
 
-        #aud_feat = np.asarray(aud_feat)
-        #seq_feat = np.asarray(seq_feat)
-        #seq_label = np.asarray(seq_label)
+        aud_feat = np.asarray(aud_feat)
+        seq_feat = np.asarray(seq_feat)
+        seq_label = np.asarray(seq_label)
 
-        aud_feat = torch.stack(aud_feat)
-        seq_feat = torch.stack(seq_feat)
-        seq_label = torch.stack(seq_label)
-        
+        self.close_h5()
         return seq_feat, aud_feat, seq_label
-
 
 class SequenceData_2(Dataset):
     def __init__(self, feat_root, integrated_label_file, seq_len, task, mode, pad_mode='repeat_last'):

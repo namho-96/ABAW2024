@@ -85,9 +85,9 @@ def main(config):
         best_performance = float('-inf')
         for epoch in range(start_epoch, config.epochs):
             # Train
-            train_loss = train_function(model, dataloader_train, criterion, optimizer, device, config)
+            _, train_loss = train_function(model, dataloader_train, criterion, optimizer, device, config)
             # Validate
-            val_loss, performance = evaluate_function(model, dataloader_val, criterion, device, config)
+            performance, val_loss = evaluate_function(model, dataloader_val, criterion, device, config)
             # 로깅 및 체크포인트 저장
             best_performance = log_and_checkpoint(epoch, model, optimizer, train_loss, val_loss, performance, scheduler, log_path, best_performance, config)
             scheduler.step()
@@ -98,6 +98,9 @@ def main(config):
         extract_feature(config.data_type, device)
     else:
         assert ValueError(f"Unknown mode: {config.mode}")
+
+
+
 
 
 def main_old(config_module):
@@ -190,6 +193,8 @@ def main_old(config_module):
     
     elif config_module.mode == 'extract':
         extract_feature(config_module.data_type, device)
+
+
 
 
 if __name__ == "__main__":

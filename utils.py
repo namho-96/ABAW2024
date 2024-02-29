@@ -11,7 +11,8 @@ from datetime import datetime
 import logging
 
 
-
+LOGGING_NAME = 'ABAW2024'
+# LOGGER = setup_log(LOGGING_NAME)
 
 def setup_log(config):
     if not wandb.api.api_key:
@@ -33,6 +34,14 @@ def setup_log(config):
 
 
 def log_and_checkpoint(epoch, model, optimizer, train_loss, val_loss, performance, scheduler, log_path, best_performance, config):
+    if not hasattr(log_and_checkpoint, "config_saved"):
+        # config 정보를 텍스트 파일로 저장합니다.
+        config_path = os.path.join(log_path, "config.txt")
+        with open(config_path, "w") as f:
+            for key, value in config_to_dict(config).items():
+                f.write(f"{key}: {value}\n")
+        log_and_checkpoint.config_saved = True
+
     # 로그 및 체크포인트 저장
     logging.info(f'Epoch {epoch}: Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}, Performance: {performance:.4f}')
     wandb.log({"Epoch": epoch, "Train Loss": train_loss, "Validation Loss": val_loss, "Performance": performance, "Learning Rate": scheduler.get_last_lr()[0]})
@@ -166,6 +175,20 @@ def CCC(y_true, y_pred):
     return ccc
 
 
+def CCC_score(x, y):
+    x = np.array(x)
+    y = np.array(y)
+    vx = x - np.mean(x)
+    vy = y - np.mean(y)
+    rho = np.sum(vx * vy) / (np.sqrt(np.sum(vx**2)) * np.sqrt(np.sum(vy**2)))
+    x_m = np.mean(x)
+    y_m = np.mean(y)
+    x_s = np.std(x)
+    y_s = np.std(y)
+    ccc = 2*rho*x_s*y_s/(x_s**2 + y_s**2 + (x_m - y_m)**2)
+    return ccc
+
+
 def CCC_loss(x, y):
     y = y.view(-1)
     x = x.view(-1)
@@ -178,6 +201,7 @@ def CCC_loss(x, y):
     y_s = torch.std(y)
     ccc = 2*rho*x_s*y_s/(torch.pow(x_s, 2) + torch.pow(y_s, 2) + torch.pow(x_m - y_m, 2))
     return 1-ccc, ccc
+
 
 
 def evaluate_performance(y_true, y_pred, data_name):
