@@ -69,9 +69,14 @@ def predict_function(config):
                 
             for i in range(start_index, end_index):            
                 filename = f"{i:05d}"
+                aud_feature = np.asarray(audio_features[aud_name][filename])
+                seq_feature = np.asarray(spatial_features[vid_name][filename])
                 
-                aud_inputs.append(torch.as_tensor(audio_features[aud_name][filename]).unsqueeze(0))
-                spatial_inputs.append(torch.as_tensor(spatial_features[vid_name][filename]).unsqueeze(0))
+                aud_feature_normalized = (aud_feature - aud_feature.mean()) / aud_feature.std()
+                seq_feature_normalized = (seq_feature - seq_feature.mean()) / seq_feature.std()
+                
+                aud_inputs.append(torch.from_numpy(aud_feature_normalized).unsqueeze(0))
+                spatial_inputs.append(torch.from_numpy(seq_feature_normalized).unsqueeze(0))
 
                 if len(aud_inputs) == 100 or i == end_index - 1:
                     vid = torch.cat(spatial_inputs).unsqueeze(0).to(device)
