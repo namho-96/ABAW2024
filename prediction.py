@@ -84,7 +84,7 @@ def predict_function(config):
                     else:
                         predicted = outputs.reshape(-1, config.num_classes)
                         
-                        if self.data_name == 'au':
+                        if config.data_name == 'au':
                             predicted = m(predicted)
                             predicted = predicted > 0.5
                             
