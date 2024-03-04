@@ -17,7 +17,7 @@ LOGGING_NAME = 'ABAW2024'
 def setup_log(config):
     if not wandb.api.api_key:
         wandb.login()
-    wandb.init(project='ABAW2024', name='ABAW2024_va')
+    wandb.init(project='ABAW2024', name=config.train_name)
     wandb.run.save()
 
     # 로깅 설정

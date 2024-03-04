@@ -20,6 +20,7 @@ num_classes = 2
 
 
 # Training
+train_name = 'mixup_residual_mix_forward x 1'
 mode = 'train'
 batch_size = 256
 epochs = 100
@@ -29,12 +30,14 @@ momentum = 0.9
 weight_decay = 0.00001
 hidden_size = [256, 128, 64]
 dropout = 0.1
+droppath = 0.2
+mixup = True
 resume = False
 resume_path = "./output/va/ccc_lr_0.001_head_8_new_model_swin_Feature/best_model_epoch_8_performance_0.3937.pth"
 
 # Model architecture
-model_arch = ["self", "mix", "forward", "forward", "forward", "neck", data_name]
-vis = True          # save model architecture
+model_arch = ["self", "mix", "forward", "neck", data_name]
+vis = False          # save model architecture
 
 
 

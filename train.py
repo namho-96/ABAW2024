@@ -83,24 +83,39 @@ def train_model(model, dataloader, criterion, optimizer, config_module, device, 
     return model
 
 
+def mixup_function(vid, aud, labels):
+    lam = float(torch.distributions.beta.Beta(0.8, 0.8).sample())
+    if lam == 1.:
+        return vid, aud, labels
+    vid_flipped = vid.flip(0).mul_(1. - lam)
+    vid.mul_(lam).add_(vid_flipped)
+    aud_flipped = aud.flip(0).mul_(1. - lam)
+    aud.mul_(lam).add_(aud_flipped)
+    labels = labels * lam + labels.flip(0) * (1. - lam)
+    return vid, aud, labels
+
+
 # 학습 함수 정의
 def train_function(model, dataloader, criterion, optimizer, device, config):
     model.train()
     running_loss = 0.0
     progress_bar = tqdm(dataloader, desc="Initializing")
-    vis_model = config.vis
 
     for vid, aud, labels in progress_bar:
         #inputs[0], inputs[1], labels = inputs[0].to(device), inputs[1].to(device), labels.to(device)
         optimizer.zero_grad()
         vid, aud, labels = vid.to(device), aud.to(device), labels.to(device)
-        outputs = model(vid, aud)
 
+        if config.mixup:
+            vid, aud, labels = mixup_function(vid, aud, labels)
+
+
+        outputs = model(vid, aud)
         if config.data_name == 'va':
             loss, mse_loss, ccc_loss, ccc_avg, _ = compute_VA_loss(outputs[0], outputs[1], labels, criterion)
-            if vis_model:
+            if config.vis:
                 make_dot(outputs[0].mean(), params=dict(model.named_parameters()), show_attrs=True, show_saved=True).render("model_arch", format="png")
-                vis_model = False
+                config.vis = False
         else:
             outputs = outputs.reshape(-1, config.num_classes).type(torch.float32)
             labels = labels.reshape(-1, config.num_classes).type(torch.float32)  # shape 일치
