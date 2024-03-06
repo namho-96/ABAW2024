@@ -51,7 +51,7 @@ def train_function(model, dataloader, criterion, optimizer, device, config):
         vid, aud, labels = vid.to(device), aud.to(device), labels.to(device)
 
         if config.mixup:
-            vid, aud, labels = mixup_function(vid, aud, labels)
+            vid, aud, labels = mixup_function(vid, aud, labels, config.data_name)
 
         outputs = model(vid, aud)
         if config.data_name == 'va':
@@ -131,7 +131,20 @@ def evaluate_function(model, dataloader, criterion, device, config):
     return avg_performance, test_loss
 
 
-def mixup_function(vid, aud, labels):
+def one_hot(x, num_classes, on_value=1., off_value=0.):
+    x = x.long().view(-1, 1)
+    return torch.full((x.size()[0], num_classes), off_value, device=x.device).scatter_(1, x, on_value)
+
+
+def mixup_target(target, num_classes, lam=1., smoothing=0.0):
+    off_value = smoothing / num_classes
+    on_value = 1. - smoothing + off_value
+    y1 = one_hot(target, num_classes, on_value=on_value, off_value=off_value)
+    y2 = one_hot(target.flip(0), num_classes, on_value=on_value, off_value=off_value)
+    return y1 * lam + y2 * (1. - lam)
+
+
+def mixup_function(vid, aud, labels, task):
     lam = float(torch.distributions.beta.Beta(0.8, 0.8).sample())
     if lam == 1.:
         return vid, aud, labels
@@ -139,5 +152,8 @@ def mixup_function(vid, aud, labels):
     vid.mul_(lam).add_(vid_flipped)
     aud_flipped = aud.flip(0).mul_(1. - lam)
     aud.mul_(lam).add_(aud_flipped)
-    labels = labels * lam + labels.flip(0) * (1. - lam)
+    if task == "expr":
+        labels = mixup_target(labels, 8)
+    else:
+        labels = labels * lam + labels.flip(0) * (1. - lam)
     return vid, aud, labels
