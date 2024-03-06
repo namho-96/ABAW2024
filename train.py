@@ -33,9 +33,7 @@ def setup_training(config):
     elif config.data_name == 'au':
         criterion = nn.BCEWithLogitsLoss()
     else:
-        weights = torch.tensor(config.weights)
-        weights.to(device)
-        criterion = nn.CrossEntropyLoss(weights)
+        criterion = nn.CrossEntropyLoss()
 
     # Scheduler
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.epochs)
