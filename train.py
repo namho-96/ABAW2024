@@ -71,8 +71,10 @@ def train_function(model, dataloader, criterion, optimizer, device, config):
 
         running_loss += loss.item()
         average_loss = running_loss / (progress_bar.n + 1)          # progress_bar.n은 현재까지 처리된 배치의 수입니다.
-        progress_bar.set_description(f"Batch_Loss: {loss.item():.4f}, Avg_Loss: {average_loss:.4f}, CCC_Loss: {ccc_loss:.4f}")
-
+        if config.data_name == 'va':
+            progress_bar.set_description(f"Batch_Loss: {loss.item():.4f}, Avg_Loss: {average_loss:.4f}, CCC_Loss: {ccc_loss:.4f}")
+        else:
+            progress_bar.set_description(f"Batch_Loss: {loss.item():.4f}, Avg_Loss: {average_loss:.4f}")
     train_loss = running_loss / len(dataloader)
     return model, train_loss
 
