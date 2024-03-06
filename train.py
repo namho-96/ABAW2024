@@ -2,23 +2,19 @@ from torchviz import make_dot
 import torch
 import torch.nn as nn
 import numpy as np
-from torch.optim.lr_scheduler import CosineAnnealingLR
-from tqdm import tqdm
 import matplotlib.pyplot as plt
 import logging
-import torch.optim as optim
 import os
 from utils import evaluate_performance
 from sklearn.metrics import classification_report
 from tqdm import tqdm
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from models.model import load_model
 from sklearn.metrics import f1_score
 from custom_metrics import *
 from utils import CCC_loss, CCC_score
 
 
-def compute_VA_loss(Vout, Aout, label, criterion):
+def compute_VA_loss(Vout, Aout, label):
     Vout = torch.clamp(Vout, -1, 1)     # [bs, sq, 1]
     Aout = torch.clamp(Aout, -1, 1)     # [bs, sq, 1]
     bz, seq, _ = Vout.shape
@@ -35,10 +31,8 @@ def compute_VA_loss(Vout, Aout, label, criterion):
     ccc_avg = 0.5 * (ccc_valence + ccc_arousal)
     # ccc_loss = CCC_loss(Vout[:, 0], label[:, 0]) + CCC_loss(Aout[:, 0], label[:, 1])       # 0 - arousal / 1 - valence
 
-    mse_loss = criterion(Vout[:, 0], label[:, 0]) + criterion(Aout[:, 0], label[:, 1])
-
     loss = ccc_loss
-    return loss, mse_loss, ccc_loss, ccc_avg, [ccc_valence, ccc_arousal]
+    return loss, ccc_loss, ccc_avg, [ccc_valence, ccc_arousal]
 
 
 
@@ -116,10 +110,9 @@ def train_function(model, dataloader, criterion, optimizer, device, config):
         if config.mixup:
             vid, aud, labels = mixup_function(vid, aud, labels)
 
-
         outputs = model(vid, aud)
         if config.data_name == 'va':
-            loss, mse_loss, ccc_loss, ccc_avg, _ = compute_VA_loss(outputs[0], outputs[1], labels, criterion)
+            loss, ccc_loss, ccc_avg, _ = compute_VA_loss(outputs[0], outputs[1], labels)
             if config.vis:
                 make_dot(outputs[0].mean(), params=dict(model.named_parameters()), show_attrs=True, show_saved=True).render("model_arch", format="png")
                 config.vis = False
@@ -162,7 +155,7 @@ def evaluate_function(model, dataloader, criterion, device, config):
             outputs = model(vid, aud)
 
             if config.data_name == 'va':
-                loss, ccc_loss = compute_VA_loss(outputs[0], outputs[1], labels)
+                loss, ccc_loss, ccc_avg, _ = compute_VA_loss(outputs[0], outputs[1], labels)
                 progress_bar.set_description(f"Loss: {loss.item():.4f}")
                 prediction_valence.extend(outputs[0][:, :, 0].cpu().numpy())
                 prediction_arousal.extend(outputs[1][:, :, 0].cpu().numpy())
