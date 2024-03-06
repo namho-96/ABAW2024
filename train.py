@@ -41,36 +41,6 @@ def compute_VA_loss(Vout, Aout, label, criterion):
     return loss, mse_loss, ccc_loss, ccc_avg, [ccc_valence, ccc_arousal]
 
 
-def setup_training(config):
-    # Set device
-    device = torch.device(f"cuda:{config.device}" if torch.cuda.is_available() else "cpu")
-    logging.info(f"Using device: {device}")
-
-    # Load model
-    model = load_model(config)
-    model.to(device)
-
-    # Optimizer
-    if config.optimizer == "adamw":
-        optimizer = optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=config.lr, betas=(0.9, 0.999), weight_decay=0.05)
-    elif config.optimizer == "adam":
-        optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=config.lr, betas=(0.9, 0.999))
-    else:
-        optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=config.lr, momentum=config.momentum, weight_decay=config.weight_decay)
-
-    # Loss function
-    if config.data_name == 'va':
-        criterion = nn.MSELoss()
-    elif config.data_name == 'au':
-        criterion = nn.BCEWithLogitsLoss()
-    else:
-        criterion = nn.CrossEntropyLoss()
-
-    # Scheduler
-    scheduler = CosineAnnealingLR(optimizer, T_max=config.epochs)
-
-    return device, model, optimizer, scheduler, criterion
-
 
 def train_model(model, dataloader, criterion, optimizer, config_module, device, num_epochs=100):
 

@@ -47,6 +47,7 @@ test_transform_op = transforms.Compose([
     transforms.Normalize(mean=[0.5], std=[0.5])
 ])
 
+
 def setup_dataset(config):
     data_path = {
         'au': 'AU_Detection_Challenge',
@@ -127,7 +128,7 @@ class TemporalDataset(Dataset):
 
 class SpatialDataset(Dataset):
     def __init__(self, dataset_dir, data_name, mode='train', transform=None):
-        assert mode in ['train','val', 'test'], "Mode must be 'train' or 'test'"
+        assert mode in ['train', 'val', 'test'], "Mode must be 'train' or 'test'"
         assert data_name in ['au', 'va', 'expr'], "data_name must be 'au', 'va', or 'expr'"
 
         self.mode = mode
@@ -180,10 +181,9 @@ class SpatialDataset(Dataset):
         return frame_path, label_tensor
 
 
-
 class MultimodalDataset(Dataset):
     def __init__(self, dataset_dir, data_name, mode='train', transform=None):
-        assert mode in ['train','val', 'test'], "Mode must be 'train' or 'test'"
+        assert mode in ['train', 'val', 'test'], "Mode must be 'train' or 'test'"
         assert data_name in ['au', 'va', 'expr'], "data_name must be 'au', 'va', or 'expr'"
 
         self.mode = mode
@@ -234,7 +234,6 @@ class MultimodalDataset(Dataset):
         label_tensor = torch.tensor(label, dtype=torch.float32)
 
         return [spatial_feature, audio_feature], label_tensor
-
 
 
 class SequenceData(Dataset):
@@ -487,7 +486,6 @@ class SequenceData_2(Dataset):
             label = torch.tensor([label]).float()
 
         return aud_feature_normalized, seq_feature_normalized, label
-
 
 
 def integrate_and_save_labels(label_root, mode, task, output_file):
