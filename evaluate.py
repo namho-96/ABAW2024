@@ -3,7 +3,7 @@ import argparse
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from custom_metrics import *
+from utils.metric import *
 from sklearn.metrics import f1_score
 
 au_names = {
@@ -66,8 +66,8 @@ def evaluate_function(args):
             gt.extend(label_df)
             
     if args.task == 'va':
-        valence_score = CCC_score(prediction_valence, gt_valence)
-        arousal_score = CCC_score(prediction_arousal, gt_arousal)
+        valence_score = CCC_np(prediction_valence, gt_valence)
+        arousal_score = CCC_np(prediction_arousal, gt_arousal)
         avg_performance = 0.5 * (valence_score + arousal_score)
         print(f"*Average Score : {avg_performance}")
         print(f"*Valence Score : {valence_score}")

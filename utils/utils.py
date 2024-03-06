@@ -1,18 +1,14 @@
+import os
+import wandb
+import logging
+import random
+import torch
+import numpy as np
+from datetime import datetime
 from torchvision.transforms import Normalize, Compose, ToPILImage
 from PIL import Image
-import torch
-import os
-from sklearn.metrics import f1_score
-import numpy as np
 import importlib
-import random
-import wandb
-from datetime import datetime
-import logging
 
-
-LOGGING_NAME = 'ABAW2024'
-# LOGGER = setup_log(LOGGING_NAME)
 
 def setup_log(config):
     if not wandb.api.api_key:
@@ -31,6 +27,19 @@ def setup_log(config):
     logging.info(f"log path: {log_path}")
 
     return log_path
+
+
+def config_to_dict(config_module):
+    """
+    config module을 dictionary로 변경
+    추후 모델 저장시 state 저장할 때 사용
+    """
+    config_dict = {}
+    for attribute in dir(config_module):
+        if not attribute.startswith("__"):
+            value = getattr(config_module, attribute)
+            config_dict[attribute] = value
+    return config_dict
 
 
 def log_and_checkpoint(epoch, model, optimizer, train_loss, val_loss, performance, scheduler, log_path, best_performance, config):
@@ -62,19 +71,6 @@ def log_and_checkpoint(epoch, model, optimizer, train_loss, val_loss, performanc
     return best_performance
 
 
-def config_to_dict(config_module):
-    """
-    config module을 dictionary로 변경
-    추후 모델 저장시 state 저장할 때 사용
-    """
-    config_dict = {}
-    for attribute in dir(config_module):
-        if not attribute.startswith("__"):
-            value = getattr(config_module, attribute)
-            config_dict[attribute] = value
-    return config_dict
-
-
 def save_checkpoint(state, filename='checkpoint.pth.tar'):
     torch.save(state, filename)
 
@@ -93,6 +89,7 @@ def load_checkpoint(model, optimizer, config):
     else:
         logging.info(f"No checkpoint found at '{filename}'")
     return model, optimizer, start_epoch
+
 
 
 def fix_seed(seed: int = 42):
@@ -161,65 +158,3 @@ def save_sample_images(dataloader, save_path, file_name, nrow=8):
 
     # 이미지 저장
     grid_img.save(os.path.join(save_path, file_name))
-
-
-def CCC(y_true, y_pred):
-    vx = y_true - torch.mean(y_true)
-    vy = y_pred - torch.mean(y_pred)
-    rho = torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2)) * torch.sqrt(torch.sum(vy ** 2)))
-    mean_true = torch.mean(y_true)
-    mean_pred = torch.mean(y_pred)
-    var_true = torch.var(y_true)
-    var_pred = torch.var(y_pred)
-    std_true = torch.sqrt(var_true)
-    std_pred = torch.sqrt(var_pred)
-    ccc = (2. * rho * std_true * std_pred) / (var_true + var_pred + (mean_true - mean_pred) ** 2)
-    return ccc
-
-
-def CCC_score(x, y):
-    x = np.array(x)
-    y = np.array(y)
-    vx = x - np.mean(x)
-    vy = y - np.mean(y)
-    rho = np.sum(vx * vy) / (np.sqrt(np.sum(vx**2)) * np.sqrt(np.sum(vy**2)))
-    x_m = np.mean(x)
-    y_m = np.mean(y)
-    x_s = np.std(x)
-    y_s = np.std(y)
-    ccc = 2*rho*x_s*y_s/(x_s**2 + y_s**2 + (x_m - y_m)**2)
-    return ccc
-
-
-def CCC_loss(x, y):
-    y = y.view(-1)
-    x = x.view(-1)
-    vx = x - torch.mean(x)
-    vy = y - torch.mean(y)
-    rho = torch.sum(vx * vy) / (torch.sqrt(torch.sum(torch.pow(vx, 2))) * torch.sqrt(torch.sum(torch.pow(vy, 2)))+1e-8)
-    x_m = torch.mean(x)
-    y_m = torch.mean(y)
-    x_s = torch.std(x)
-    y_s = torch.std(y)
-    ccc = 2*rho*x_s*y_s/(torch.pow(x_s, 2) + torch.pow(y_s, 2) + torch.pow(x_m - y_m, 2))
-    return 1-ccc, ccc
-
-
-
-def evaluate_performance(y_true, y_pred, data_name):
-    if data_name == 'va':
-        # CCC 계산
-        CCC_arousal = CCC(y_true[:, 0], y_pred[:, 0])
-        CCC_valence = CCC(y_true[:, 1], y_pred[:, 1])
-        performance = 0.5 * (CCC_arousal.item() + CCC_valence.item())
-    else:
-        # F1 점수 계산을 위해 y_pred를 이진 레이블로 변환
-        y_pred_binary = y_pred > 0.5
-        if data_name == 'au':
-            # 다중 레이블 분류 문제에 대한 처리
-            performance = f1_score(y_true.cpu().numpy(), y_pred_binary.cpu().numpy(), average='macro', zero_division=1)
-        else:
-            # 다중 클래스 분류 또는 단일 레이블 분류 문제에 대한 처리
-            # 'expr'와 같은 경우
-            performance = f1_score(y_true.cpu().numpy().argmax(axis=1), y_pred_binary.cpu().numpy().argmax(axis=1), average='macro', zero_division=1)
-    return performance

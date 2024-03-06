@@ -1,19 +1,17 @@
-import argparse
-import importlib
 from prediction import predict_function
 from data.dataset import TemporalDataset, SpatialDataset, MultimodalDataset, SequenceData, SequenceData_2
-from utils import save_sample_images, evaluate_performance, fix_seed, update_config, save_checkpoint, load_checkpoint, setup_log, log_and_checkpoint
-from train import train_model, train_function, evaluate_function
+
+from utils.utils import fix_seed, load_checkpoint, setup_log, log_and_checkpoint
+
+from train import train_function, evaluate_function
 from torch.utils.data import DataLoader
-import torch
-import torch.nn as nn
+
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from models.model import load_model
 from config_abaw_au import get_args
 from extract import *
 import logging
-import wandb
 logging.getLogger().setLevel(logging.INFO)
 
 

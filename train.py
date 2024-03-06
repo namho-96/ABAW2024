@@ -1,41 +1,118 @@
 from torchviz import make_dot
 import torch
 import torch.nn as nn
-import numpy as np
-import matplotlib.pyplot as plt
-import logging
-import os
-from utils import evaluate_performance
-from sklearn.metrics import classification_report
 from tqdm import tqdm
-from torch.optim.lr_scheduler import CosineAnnealingLR
 from sklearn.metrics import f1_score
-from custom_metrics import *
-from utils import CCC_loss, CCC_score
+
+from utils.loss import VA_loss, CCC_loss
+from utils.metric import CCC_np, CCC_torch
 
 
-def compute_VA_loss(Vout, Aout, label):
-    Vout = torch.clamp(Vout, -1, 1)     # [bs, sq, 1]
-    Aout = torch.clamp(Aout, -1, 1)     # [bs, sq, 1]
-    bz, seq, _ = Vout.shape
-    label = label.view(bz * seq, -1)        # [bs, sq, 2]
-    Vout = Vout.view(bz * seq, -1)
-    Aout = Aout.view(bz * seq, -1)
+# 학습 함수 정의
+def train_function(model, dataloader, criterion, optimizer, device, config):
+    model.train()
+    running_loss = 0.0
+    progress_bar = tqdm(dataloader, desc="Initializing")
 
-    ccc_valence_loss, ccc_valence = CCC_loss(Vout[:, 0], label[:, 0])
-    ccc_arousal_loss, ccc_arousal = CCC_loss(Aout[:, 0], label[:, 1])
+    for vid, aud, labels in progress_bar:
+        #inputs[0], inputs[1], labels = inputs[0].to(device), inputs[1].to(device), labels.to(device)
+        optimizer.zero_grad()
+        vid, aud, labels = vid.to(device), aud.to(device), labels.to(device)
 
-    # logging.info(f"ccc_valence_loss:{ccc_valence_loss:.4}, ccc_arousal_loss:{ccc_arousal_loss:.4}")
+        if config.mixup:
+            vid, aud, labels = mixup_function(vid, aud, labels)
 
-    ccc_loss = ccc_valence_loss + ccc_arousal_loss
-    ccc_avg = 0.5 * (ccc_valence + ccc_arousal)
-    # ccc_loss = CCC_loss(Vout[:, 0], label[:, 0]) + CCC_loss(Aout[:, 0], label[:, 1])       # 0 - arousal / 1 - valence
+        outputs = model(vid, aud)
+        if config.data_name == 'va':
+            loss, ccc_loss, ccc_avg, _ = VA_loss(outputs[0], outputs[1], labels)
+            if config.vis:
+                make_dot(outputs[0].mean(), params=dict(model.named_parameters()), show_attrs=True, show_saved=True).render("model_arch", format="png")
+                config.vis = False
+        else:
+            outputs = outputs.reshape(-1, config.num_classes).type(torch.float32)
+            labels = labels.reshape(-1, config.num_classes).type(torch.float32)  # shape 일치
+            loss = criterion(outputs, labels)
 
-    loss = ccc_loss
-    return loss, ccc_loss, ccc_avg, [ccc_valence, ccc_arousal]
+        loss.backward()
+        optimizer.step()
+
+        running_loss += loss.item()
+        average_loss = running_loss / (progress_bar.n + 1)          # progress_bar.n은 현재까지 처리된 배치의 수입니다.
+        progress_bar.set_description(f"Batch_Loss: {loss.item():.4f}, Avg_Loss: {average_loss:.4f}, CCC_Loss: {ccc_loss:.4f}")
+
+    train_loss = running_loss / len(dataloader)
+    return model, train_loss
 
 
+# 평가 함수 정의
+def evaluate_function(model, dataloader, criterion, device, config):
+    model.eval()
+    running_loss = 0.0
+    progress_bar = tqdm(dataloader, desc="Initializing")
 
+    if config.data_name == 'va':
+        prediction_valence = []
+        prediction_arousal = []
+        gt_valence = []
+        gt_arousal = []
+    else:
+        if config.data_name == 'au':
+            m = nn.Sigmoid()
+        prediction = []
+        gt = []
+
+    with torch.no_grad():
+        for vid, aud, labels in progress_bar:
+            vid, aud, labels = vid.to(device), aud.to(device), labels.to(device)
+            outputs = model(vid, aud)
+
+            if config.data_name == 'va':
+                loss, ccc_loss, ccc_avg, _ = VA_loss(outputs[0], outputs[1], labels)
+                progress_bar.set_description(f"Loss: {loss.item():.4f}")
+                prediction_valence.extend(outputs[0][:, :, 0].cpu().numpy())
+                prediction_arousal.extend(outputs[1][:, :, 0].cpu().numpy())
+                gt_valence.extend(labels[:, :, 0].cpu().numpy())
+                gt_arousal.extend(labels[:, :, 1].cpu().numpy())
+            else:
+                outputs = outputs.reshape(-1, config.num_classes)
+                labels = labels.reshape(-1, config.num_classes)
+                loss = criterion(outputs, labels)
+
+                if config.data_name == 'au':
+                    predicted = m(outputs)
+                    predicted = predicted > 0.5
+                elif config.data_name == 'expr':
+                    _, predicted = outputs.max(1)
+
+                prediction.extend(predicted.cpu().numpy())
+                gt.extend(labels.cpu().numpy())
+
+            progress_bar.set_description(f"Loss: {loss.item():.4f}")
+            running_loss += loss.item()
+
+    test_loss = running_loss / len(dataloader)
+    if config.data_name == 'va':
+        avg_performance = 0.5 * (CCC_np(prediction_valence, gt_valence) + CCC_np(prediction_arousal, gt_arousal))
+    else:
+        f1s = f1_score(gt, prediction, average=None, zero_division=1)
+        avg_performance = f1_score(gt, prediction, average='macro', zero_division=1)
+
+    return test_loss, avg_performance
+
+
+def mixup_function(vid, aud, labels):
+    lam = float(torch.distributions.beta.Beta(0.8, 0.8).sample())
+    if lam == 1.:
+        return vid, aud, labels
+    vid_flipped = vid.flip(0).mul_(1. - lam)
+    vid.mul_(lam).add_(vid_flipped)
+    aud_flipped = aud.flip(0).mul_(1. - lam)
+    aud.mul_(lam).add_(aud_flipped)
+    labels = labels * lam + labels.flip(0) * (1. - lam)
+    return vid, aud, labels
+
+
+"""
 def train_model(model, dataloader, criterion, optimizer, config_module, device, num_epochs=100):
 
     scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs)
@@ -82,109 +159,4 @@ def train_model(model, dataloader, criterion, optimizer, config_module, device, 
         plt.close()
 
     return model
-
-
-def mixup_function(vid, aud, labels):
-    lam = float(torch.distributions.beta.Beta(0.8, 0.8).sample())
-    if lam == 1.:
-        return vid, aud, labels
-    vid_flipped = vid.flip(0).mul_(1. - lam)
-    vid.mul_(lam).add_(vid_flipped)
-    aud_flipped = aud.flip(0).mul_(1. - lam)
-    aud.mul_(lam).add_(aud_flipped)
-    labels = labels * lam + labels.flip(0) * (1. - lam)
-    return vid, aud, labels
-
-
-# 학습 함수 정의
-def train_function(model, dataloader, criterion, optimizer, device, config):
-    model.train()
-    running_loss = 0.0
-    progress_bar = tqdm(dataloader, desc="Initializing")
-
-    for vid, aud, labels in progress_bar:
-        #inputs[0], inputs[1], labels = inputs[0].to(device), inputs[1].to(device), labels.to(device)
-        optimizer.zero_grad()
-        vid, aud, labels = vid.to(device), aud.to(device), labels.to(device)
-
-        if config.mixup:
-            vid, aud, labels = mixup_function(vid, aud, labels)
-
-        outputs = model(vid, aud)
-        if config.data_name == 'va':
-            loss, ccc_loss, ccc_avg, _ = compute_VA_loss(outputs[0], outputs[1], labels)
-            if config.vis:
-                make_dot(outputs[0].mean(), params=dict(model.named_parameters()), show_attrs=True, show_saved=True).render("model_arch", format="png")
-                config.vis = False
-        else:
-            outputs = outputs.reshape(-1, config.num_classes).type(torch.float32)
-            labels = labels.reshape(-1, config.num_classes).type(torch.float32)  # shape 일치
-            loss = criterion(outputs, labels)
-
-        loss.backward()
-        optimizer.step()
-
-        running_loss += loss.item()
-        average_loss = running_loss / (progress_bar.n + 1)          # progress_bar.n은 현재까지 처리된 배치의 수입니다.
-        progress_bar.set_description(f"Batch_Loss: {loss.item():.4f}, Avg_Loss: {average_loss:.4f}, CCC_Loss: {ccc_loss:.4f}")
-
-    train_loss = running_loss / len(dataloader)
-    return model, train_loss
-
-
-# 평가 함수 정의
-def evaluate_function(model, dataloader, criterion, device, config):
-    model.eval()
-    running_loss = 0.0
-    progress_bar = tqdm(dataloader, desc="Initializing")
-
-    if config.data_name == 'va':
-        prediction_valence = []
-        prediction_arousal = []
-        gt_valence = []
-        gt_arousal = []
-    else:
-        if config.data_name == 'au':
-            m = nn.Sigmoid()
-        prediction = []
-        gt = []
-
-    with torch.no_grad():
-        for vid, aud, labels in progress_bar:
-            vid, aud, labels = vid.to(device), aud.to(device), labels.to(device)
-            outputs = model(vid, aud)
-
-            if config.data_name == 'va':
-                loss, ccc_loss, ccc_avg, _ = compute_VA_loss(outputs[0], outputs[1], labels)
-                progress_bar.set_description(f"Loss: {loss.item():.4f}")
-                prediction_valence.extend(outputs[0][:, :, 0].cpu().numpy())
-                prediction_arousal.extend(outputs[1][:, :, 0].cpu().numpy())
-                gt_valence.extend(labels[:, :, 0].cpu().numpy())
-                gt_arousal.extend(labels[:, :, 1].cpu().numpy())
-            else:
-                outputs = outputs.reshape(-1, config.num_classes)
-                labels = labels.reshape(-1, config.num_classes)
-                loss = criterion(outputs, labels)
-
-                if config.data_name == 'au':
-                    predicted = m(outputs)
-                    predicted = predicted > 0.5
-                elif config.data_name == 'expr':
-                    _, predicted = outputs.max(1)
-
-                prediction.extend(predicted.cpu().numpy())
-                gt.extend(labels.cpu().numpy())
-
-            progress_bar.set_description(f"Loss: {loss.item():.4f}")
-            running_loss += loss.item()
-
-    test_loss = running_loss / len(dataloader)
-    if config.data_name == 'va':
-        avg_performance = 0.5 * (CCC_score(prediction_valence, gt_valence) + CCC_score(prediction_arousal, gt_arousal))
-    else:
-        f1s = f1_score(gt, prediction, average=None, zero_division=1)
-        avg_performance = f1_score(gt, prediction, average='macro', zero_division=1)
-
-    return test_loss, avg_performance
-
-
+"""
