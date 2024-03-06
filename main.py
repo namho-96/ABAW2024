@@ -9,6 +9,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from models.model import load_model
+from config_abaw_au import get_args
 from extract import *
 import logging
 import wandb
@@ -98,9 +99,6 @@ def main(config):
         extract_feature(config.data_type, device)
     else:
         assert ValueError(f"Unknown mode: {config.mode}")
-
-
-
 
 
 def main_old(config_module):
@@ -195,15 +193,7 @@ def main_old(config_module):
         extract_feature(config_module.data_type, device)
 
 
-
-
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Deep Learning Model Configuration')
-    parser.add_argument('--config', type=str, required=True, help='Config module name to use')
-    args = parser.parse_args()
-
-    config_module = update_config(args)
-
+    configs = get_args()
     fix_seed()
-    # main_ old(config_module)
-    main(config_module)
+    main(configs)

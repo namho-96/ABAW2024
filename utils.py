@@ -110,6 +110,7 @@ def fix_seed(seed: int = 42):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
+
 def createDirectory(directory):
     try:
         if not os.path.exists(directory):
@@ -117,13 +118,12 @@ def createDirectory(directory):
     except OSError:
         print("Error: Failed to create the directory.")
 
-def update_config(args):   
+
+def update_config(args):
     config_module = importlib.import_module(args.config)
-    # config_module.data_type = args.data_type
-    # config_module.mode = args.mode
-    # config_module.device = args.device
     return config_module
-    
+
+
 def denormalize(tensor):
     mean = [0.485, 0.456, 0.406]
     std = [0.229, 0.224, 0.225]
@@ -133,6 +133,7 @@ def denormalize(tensor):
         ToPILImage()
     ])
     return denormalize(tensor)
+
 
 def save_sample_images(dataloader, save_path, file_name, nrow=8):
     images, _ = next(iter(dataloader))
@@ -160,6 +161,7 @@ def save_sample_images(dataloader, save_path, file_name, nrow=8):
 
     # 이미지 저장
     grid_img.save(os.path.join(save_path, file_name))
+
 
 def CCC(y_true, y_pred):
     vx = y_true - torch.mean(y_true)
