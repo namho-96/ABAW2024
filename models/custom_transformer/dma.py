@@ -214,6 +214,7 @@ class DeepMixAttention(nn.Module):
             torch.nn.init.constant_(m.bias, 0)
 
     def forward(self, img, aud):
+        img = F.interpolate(img, size=self.nf, mode='linear')  # 1024 -> 768
         aud = F.interpolate(aud, size=self.nf, mode='linear')  # 1024 -> 768
         layer_index = 0  # 실제로 사용된 레이어의 인덱스를 추적
         # Even - Video / Odd - Audio
