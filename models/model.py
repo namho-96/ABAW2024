@@ -2,7 +2,8 @@ import os
 import timm
 import torch.nn as nn
 from transformers import AutoModel, AutoConfig, Wav2Vec2FeatureExtractor
-from .custom_transformer import BaseModel, VAmodel, BaseModel2, BaseModel3
+from .custom_transformer import BaseModel, VAmodel, BaseModel2, BaseModel3, DeepMixAttention
+
 
 def load_model(config_module):
     # num_classes 지정
@@ -80,6 +81,8 @@ def load_transformer_model(config_module):
         model = BaseModel2(config_module.num_features, config_module.num_head, config_module.num_classes)
     elif config_module.model_name == 'base3':
         model = BaseModel3(config_module.num_features, config_module.num_head, config_module.num_classes)
+    elif config_module.model_name == 'dma':
+        model = DeepMixAttention(config_module)
     else:
         raise Exception("Wrong config_module.model_name")
     return model
