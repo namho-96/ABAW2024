@@ -1,25 +1,5 @@
 import numpy as np
 import torch
-from sklearn.metrics import f1_score
-
-
-def evaluate_performance(y_true, y_pred, data_name):
-    if data_name == 'va':
-        # CCC 계산
-        CCC_arousal = CCC_torch(y_true[:, 0], y_pred[:, 0])
-        CCC_valence = CCC_torch(y_true[:, 1], y_pred[:, 1])
-        performance = 0.5 * (CCC_arousal.item() + CCC_valence.item())
-    else:
-        # F1 점수 계산을 위해 y_pred를 이진 레이블로 변환
-        y_pred_binary = y_pred > 0.5
-        if data_name == 'au':
-            # 다중 레이블 분류 문제에 대한 처리
-            performance = f1_score(y_true.cpu().numpy(), y_pred_binary.cpu().numpy(), average='macro', zero_division=1)
-        else:
-            # 다중 클래스 분류 또는 단일 레이블 분류 문제에 대한 처리
-            # 'expr'와 같은 경우
-            performance = f1_score(y_true.cpu().numpy().argmax(axis=1), y_pred_binary.cpu().numpy().argmax(axis=1), average='macro', zero_division=1)
-    return performance
 
 
 def CCC_torch(y_true, y_pred):
