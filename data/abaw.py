@@ -163,11 +163,22 @@ class SequenceData(Dataset):
             seq_label_list += crt_label_list
  
         return seq_id_list, seq_label_list
- 
+        
     def open_h5(self):
         for feat_name in ["audio", "spatial"]:
-            self.feat_map[feat_name] = h5py.File(
-                os.path.join(self.feat_root, feat_name + '_features.h5'), 'r')
+            if feat_name == "audio":
+                self.feat_map[feat_name] = h5py.File(
+                    os.path.join(self.feat_root, feat_name + '_features.h5'), 'r')
+            else:                
+                if self.task == 'va':
+                    self.feat_map[feat_name] = h5py.File(
+                        os.path.join(self.feat_root, feat_name + '_features_va_base.h5'), 'r')
+                elif self.task == 'expr':
+                    self.feat_map[feat_name] = h5py.File(
+                        os.path.join(self.feat_root, feat_name + '_features_expr_base.h5'), 'r')
+                elif self.task == 'au':
+                    self.feat_map[feat_name] = h5py.File(
+                        os.path.join(self.feat_root, feat_name + '_features_au_base.h5'), 'r')
  
     def close_h5(self):
         for feat_name in ["audio", "spatial"]:
