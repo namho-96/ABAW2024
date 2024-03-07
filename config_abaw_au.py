@@ -18,7 +18,7 @@ def get_args():
     parser.add_argument('--model_name', type=str, default='dma', help='Name of the model')
     parser.add_argument('--num_head', type=int, default=8, help='Number of attention heads')
     parser.add_argument('--sq_len', type=int, default=100, help='Sequence length')
-    parser.add_argument('--num_features', type=int, default=512, help='Number of input features')
+    parser.add_argument('--num_features', type=int, default=768, help='Number of input features')
     parser.add_argument('--num_classes', type=int, default=2, help='Number of output classes')
 
     # Training

@@ -24,3 +24,4 @@ def setup_dataset(config):
                                 num_workers=config.num_workers, drop_last=True)
 
     return dataloader_train, dataloader_val
+

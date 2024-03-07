@@ -21,7 +21,6 @@ class Trainer:
         if self.args.resume:
             self.load_checkpoint()
 
-
     def setup_training(self, model):
         # Set device
         device = torch.device(f"cuda:{self.args.device}" if torch.cuda.is_available() else "cpu")
@@ -61,20 +60,6 @@ class Trainer:
         else:
             logging.info(f"No checkpoint found at '{filename}'")
 
-
-
-    @staticmethod
-    def mixup(vid, aud, labels):
-        lam = float(torch.distributions.beta.Beta(0.8, 0.8).sample())
-        if lam == 1.:
-            return vid, aud, labels
-        vid_flipped = vid.flip(0).mul_(1. - lam)
-        vid.mul_(lam).add_(vid_flipped)
-        aud_flipped = aud.flip(0).mul_(1. - lam)
-        aud.mul_(lam).add_(aud_flipped)
-        labels = labels * lam + labels.flip(0) * (1. - lam)
-        return vid, aud, labels
-
     def train(self, dataloader):
         self.model.train()
         running_loss = 0.0
@@ -85,7 +70,7 @@ class Trainer:
             vid, aud, labels = vid.to(self.device), aud.to(self.device), labels.to(self.device)
 
             if self.args.mixup:
-                vid, aud, labels = self.mixup(vid, aud, labels)
+                vid, aud, labels = mixup_function(vid, aud, labels)
 
             outputs = self.model(vid, aud)
             if self.args.data_name == 'va':

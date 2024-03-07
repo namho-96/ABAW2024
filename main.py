@@ -18,8 +18,10 @@ def main(config):
         best_performance = float('-inf')
         for epoch in range(start_epoch, config.epochs):
             _ = trainer.train(dataloader_train)
-            results_dict = trainer.evaluate(dataloader_val)
+            results_dict = trainer.evaluate(dataloader_val)     # Results_dict 내에 train/eval_loss, 성능, 모델, args 전부 포함
             best_performance = log_and_checkpoint(epoch, results_dict, log_path, best_performance)
+
+
 
         #
         # # 학습 설정
