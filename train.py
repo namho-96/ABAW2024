@@ -1,4 +1,5 @@
 import logging
+import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -8,6 +9,158 @@ from sklearn.metrics import f1_score
 from models.model import load_model
 from utils.loss import VA_loss, CCC_loss
 from utils.metric import CCC_np, CCC_torch
+
+
+class Trainer:
+    def __init__(self, args):
+        self.args = args
+        self.model = load_model(self.args)
+        self.device, self.model, self.optimizer, self.scheduler, self.criterion = self.setup_training(self.model)
+        self.model.to(self.device)
+        self.state_dict = {'args': self.args}
+        if self.args.resume:
+            self.load_checkpoint()
+
+
+    def setup_training(self, model):
+        # Set device
+        device = torch.device(f"cuda:{self.args.device}" if torch.cuda.is_available() else "cpu")
+        logging.info(f"Using device: {device}")
+
+        # Optimizer
+        if self.args.optimizer == "adamw":
+            optimizer = optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=self.args.lr, betas=(0.9, 0.999), weight_decay=0.05)
+        elif self.args.optimizer == "adam":
+            optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=self.args.lr, betas=(0.9, 0.999))
+        else:
+            optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=self.args.lr, momentum=self.args.momentum, weight_decay=self.args.weight_decay)
+
+        # Loss function
+        if self.args.data_name == 'va':
+            criterion = nn.MSELoss()
+        elif self.args.data_name == 'au':
+            criterion = nn.BCEWithLogitsLoss()
+        else:
+            weights = torch.tensor(self.args.weights)
+            weights.to(device)
+            criterion = nn.CrossEntropyLoss(weights)
+
+        # Scheduler
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.args.epochs)
+        return device, model, optimizer, scheduler, criterion
+
+    def load_checkpoint(self):
+        """체크포인트 로드 함수"""
+        filename = self.args.resume
+        if os.path.isfile(filename):
+            logging.info(f"Loading checkpoint '{filename}'")
+            checkpoint = torch.load(filename)
+            self.model.load_state_dict(checkpoint['state_dict'])
+            self.optimizer.load_state_dict(checkpoint['optimizer'])
+            logging.info(f"Loaded checkpoint '{filename}' (epoch {checkpoint['epoch']})")
+        else:
+            logging.info(f"No checkpoint found at '{filename}'")
+
+
+
+    @staticmethod
+    def mixup(vid, aud, labels):
+        lam = float(torch.distributions.beta.Beta(0.8, 0.8).sample())
+        if lam == 1.:
+            return vid, aud, labels
+        vid_flipped = vid.flip(0).mul_(1. - lam)
+        vid.mul_(lam).add_(vid_flipped)
+        aud_flipped = aud.flip(0).mul_(1. - lam)
+        aud.mul_(lam).add_(aud_flipped)
+        labels = labels * lam + labels.flip(0) * (1. - lam)
+        return vid, aud, labels
+
+    def train(self, dataloader):
+        self.model.train()
+        running_loss = 0.0
+        progress_bar = tqdm(dataloader, desc="Initializing")
+
+        for vid, aud, labels in progress_bar:
+            self.optimizer.zero_grad()
+            vid, aud, labels = vid.to(self.device), aud.to(self.device), labels.to(self.device)
+
+            if self.args.mixup:
+                vid, aud, labels = self.mixup(vid, aud, labels)
+
+            outputs = self.model(vid, aud)
+            if self.args.data_name == 'va':
+                loss, ccc_loss = VA_loss(outputs[0], outputs[1], labels)
+                if self.args.vis:
+                    make_dot(outputs[0].mean(), params=dict(self.model.named_parameters()), show_attrs=True, show_saved=True).render("model_arch", format="png")
+                    self.args.vis = False
+            else:
+                outputs = outputs.reshape(-1, self.args.num_classes).type(torch.float32)
+                labels = labels.reshape(-1, self.args.num_classes).type(torch.float32)  # shape 일치
+                loss = self.criterion(outputs, labels)
+
+            loss.backward()
+            self.optimizer.step()
+
+            running_loss += loss.item()
+            average_loss = running_loss / (progress_bar.n + 1)  # progress_bar.n은 현재까지 처리된 배치의 수입니다.
+            progress_bar.set_description(f"Batch_Loss: {loss.item():.4f}, Avg_Loss: {average_loss:.4f}, CCC_Loss: {ccc_loss:.4f}")
+
+        train_loss = running_loss / len(dataloader)
+        self.scheduler.step()
+        self.state_dict.update({'model': self.model, 'optimizer': self.optimizer, 'scheduler': self.scheduler, 'train_loss': train_loss})
+        return self.state_dict
+
+    @torch.no_grad()
+    def evaluate(self, dataloader):
+        self.model.eval()
+        running_loss = 0.0
+        progress_bar = tqdm(dataloader, desc="Initializing")
+
+        if self.args.data_name == 'va':
+            pv, pa, gv, ga = [], [], [], []
+        else:
+            m = nn.Sigmoid() if self.args.data_name == 'au' else None
+            prediction, gt = [], []
+
+        for vid, aud, labels in progress_bar:
+            vid, aud, labels = vid.to(self.device), aud.to(self.device), labels.to(self.device)
+            outputs = self.model(vid, aud)
+
+            if self.args.data_name == 'va':
+                loss, ccc_loss = VA_loss(outputs[0], outputs[1], labels)
+                pv.extend(outputs[0][:, :, 0].cpu().numpy())
+                pa.extend(outputs[1][:, :, 0].cpu().numpy())
+                gv.extend(labels[:, :, 0].cpu().numpy())
+                ga.extend(labels[:, :, 1].cpu().numpy())
+            else:
+                outputs = outputs.reshape(-1, self.args.num_classes)
+                labels = labels.reshape(-1, self.args.num_classes)
+                loss = self.criterion(outputs, labels)
+
+                if self.args.data_name == 'au':
+                    predicted = m(outputs)
+                    predicted = predicted > 0.5
+                elif self.args.data_name == 'expr':
+                    _, predicted = outputs.max(1)
+
+                prediction.extend(predicted.cpu().numpy())
+                gt.extend(labels.cpu().numpy())
+
+            progress_bar.set_description(f"Loss: {loss.item():.4f}")
+            running_loss += loss.item()
+
+        test_loss = running_loss / len(dataloader)
+        if self.args.data_name == 'va':
+            avg_performance = 0.5 * (CCC_np(pv, gv) + CCC_np(pa, ga))
+        else:
+            avg_performance = f1_score(gt, prediction, average='macro', zero_division=1)
+
+        self.state_dict.update({'performance': avg_performance, 'eval_loss': test_loss})
+        return avg_performance, test_loss
+
+
+
+
 
 
 def setup_training(config):

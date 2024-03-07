@@ -39,49 +39,40 @@ def config_to_dict(config_module):
     return config_dict
 
 
-def log_and_checkpoint(epoch, model, optimizer, train_loss, val_loss, performance, scheduler, log_path, best_performance, config):
+def log_and_checkpoint(epoch, state_dict, log_path, best_performance):
     if not hasattr(log_and_checkpoint, "config_saved"):
         # config 정보를 텍스트 파일로 저장합니다.
         config_path = os.path.join(log_path, "config.txt")
         with open(config_path, "w") as f:
-            for key, value in config_to_dict(config).items():
+            for key, value in config_to_dict(state_dict['args']).items():
                 f.write(f"{key}: {value}\n")
         log_and_checkpoint.config_saved = True
 
     # 현재 성능이 이전 최고 성능보다 좋을 경우 모델 저장
-    if performance > best_performance:
-        logging.info(f"New best model with performance: {performance:.4f}, saving model...")
-        best_performance = performance  # 최고 성능 갱신
-        best_model_path = os.path.join(log_path, f"best_model_epoch_{epoch}_performance_{performance:.4f}.pth")
+    if state_dict['performance'] > best_performance:
+        logging.info(f"New best model with performance: {state_dict['performance']:.4f}, saving model...")
+        best_performance = state_dict['performance']  # 최고 성능 갱신
+        best_model_path = os.path.join(log_path, f"best_model_epoch_{epoch}_performance_{state_dict['performance']:.4f}.pth")
         torch.save({
             'epoch': epoch + 1,
-            'state_dict': model.state_dict(),
-            'optimizer': optimizer.state_dict(),
-            'performance': performance,
-            'config': config_to_dict(config)
+            'state_dict': state_dict['model'].state_dict(),
+            'optimizer': state_dict['optimizer'].state_dict(),
+            'performance': state_dict['performance'],
+            'config': config_to_dict(state_dict['args'])
         }, best_model_path)
 
     # 로그 및 체크포인트 저장
-    logging.info(f'Epoch {epoch}: Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}, Performance: {performance:.4f}, Best Performance: {best_performance:.4f}')
-    wandb.log({"Epoch": epoch, "Train Loss": train_loss, "Validation Loss": val_loss, "Performance": performance, "Best Performance" : best_performance, "Learning Rate": scheduler.get_last_lr()[0]})
+    logging.info(f'Epoch {epoch}: Train Loss: {state_dict["train_loss"]:.4f}, Valid Loss: {state_dict["eval_loss"]:.4f}, '
+                 f'Performance: {state_dict["performance"]:.4f}, Best: {best_performance:.4f}')
+
+    wandb.log({"Epoch": epoch,
+               "Train Loss": state_dict["train_loss"],
+               "Validation Loss": state_dict["eval_loss"],
+               "Performance": state_dict["performance"],
+               "Best Performance": best_performance,
+               "Learning Rate": state_dict['scheduler'].get_last_lr()[0]})
 
     return best_performance
-
-
-def load_checkpoint(model, optimizer, config):
-    """체크포인트 로드 함수"""
-    start_epoch = 0
-    filename = config.resume_path
-    if os.path.isfile(filename):
-        logging.info(f"Loading checkpoint '{filename}'")
-        checkpoint = torch.load(filename)
-        start_epoch = checkpoint['epoch']
-        model.load_state_dict(checkpoint['state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer'])
-        logging.info(f"Loaded checkpoint '{filename}' (epoch {checkpoint['epoch']})")
-    else:
-        logging.info(f"No checkpoint found at '{filename}'")
-    return model, optimizer, start_epoch
 
 
 

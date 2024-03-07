@@ -12,7 +12,7 @@ def CCC_loss(x, y):
     x_s = torch.std(x)
     y_s = torch.std(y)
     ccc = 2*rho*x_s*y_s/(torch.pow(x_s, 2) + torch.pow(y_s, 2) + torch.pow(x_m - y_m, 2))
-    return 1-ccc, ccc
+    return 1-ccc
 
 
 def VA_loss(vout, aout, label):
@@ -23,14 +23,11 @@ def VA_loss(vout, aout, label):
     vout = vout.view(bz * seq, -1)
     aout = aout.view(bz * seq, -1)
 
-    ccc_valence_loss, ccc_valence = CCC_loss(vout[:, 0], label[:, 0])
-    ccc_arousal_loss, ccc_arousal = CCC_loss(aout[:, 0], label[:, 1])
-
-    # logging.info(f"ccc_valence_loss:{ccc_valence_loss:.4}, ccc_arousal_loss:{ccc_arousal_loss:.4}")
+    ccc_valence_loss = CCC_loss(vout[:, 0], label[:, 0])
+    ccc_arousal_loss = CCC_loss(aout[:, 0], label[:, 1])
 
     ccc_loss = ccc_valence_loss + ccc_arousal_loss
-    ccc_avg = 0.5 * (ccc_valence + ccc_arousal)
-
     loss = ccc_loss
-    return loss, ccc_loss, ccc_avg, [ccc_valence, ccc_arousal]
+
+    return loss, ccc_loss
 
