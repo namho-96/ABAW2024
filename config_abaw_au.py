@@ -11,7 +11,7 @@ def get_args():
     parser.add_argument('--num_workers', type=int, default=0, help='Number of workers for data loading')
 
     # Data
-    parser.add_argument('--data_name', type=str, default='va', help='Name of the data [va, expr, au]')
+    parser.add_argument('--task', type=str, default='va', help='Name of the data [va, expr, au]')
     parser.add_argument('--data_type', type=str, default='multimodal', help='Type of the data')
 
     # Model

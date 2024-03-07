@@ -7,7 +7,7 @@ import numpy as np
 from tqdm import tqdm
 from models.model import load_model
 
-def select_data_phase(data_name, phase):
+def select_data_phase(task, phase):
     data_path = {
         'au': 'AU_Detection_Challenge',
         'expr': 'EXPR_Recognition_Challenge',
@@ -18,7 +18,7 @@ def select_data_phase(data_name, phase):
         'test' : 'Test_Set'
     }
     
-    return data_path[data_name], phase_lists[phase]
+    return data_path[task], phase_lists[phase]
 
 @torch.no_grad()
 def predict_function(config):    
@@ -29,16 +29,16 @@ def predict_function(config):
     model.to(device)
     model.eval()
     
-    task_name, phase_name = select_data_phase(config.data_name, config.phase)
+    task_name, phase_name = select_data_phase(config.task, config.phase)
     data_path = os.path.join(config.label_path, task_name, phase_name)
     
     audio_features = h5py.File(os.path.join(config.feat_path, 'audio_features.h5'), 'r')
     spatial_features = h5py.File(os.path.join(config.feat_path, 'spatial_features.h5'), 'r')
     
-    output_path = f"output/prediction/{config.data_name}/{config.phase}/{config.tag}"
+    output_path = f"output/prediction/{config.task}/{config.phase}/{config.tag}"
     os.makedirs(output_path, exist_ok=True)
     
-    if config.data_name == 'au':    
+    if config.task == 'au':    
         m = nn.Sigmoid()
     
     txt_lists = nt.natsorted(os.listdir(data_path))
@@ -60,11 +60,11 @@ def predict_function(config):
         
         with open(full_output_name, "a") as f:
         
-            if config.data_name == 'va':
+            if config.task == 'va':
                 f.write('valence,arousal\n')
-            elif config.data_name == 'au':
+            elif config.task == 'au':
                 f.write('AU1,AU2,AU4,AU6,AU7,AU10,AU12,AU15,AU23,AU24,AU25,AU26\n')                
-            elif config.data_name == 'expr':
+            elif config.task == 'expr':
                 f.write('Neutral,Anger,Disgust,Fear,Happiness,Sadness,Surprise,Other\n')                
                 
             for i in range(start_index, end_index):            
@@ -83,13 +83,13 @@ def predict_function(config):
                     aud = torch.cat(aud_inputs).unsqueeze(0).to(device)
                     outputs = model(vid, aud)
                     
-                    if config.data_name == 'va':
+                    if config.task == 'va':
                         predicted = np.hstack(outputs[0].cpu().numpy(), outputs[1].cpu().numpy())   
                         np.savetxt(f, predicted, delimiter=',', fmt='%f')
                     else:
                         predicted = outputs.reshape(-1, config.num_classes)
                         
-                        if config.data_name == 'au':
+                        if config.task == 'au':
                             predicted = m(predicted)
                             predicted = predicted > 0.5
                             

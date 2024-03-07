@@ -10,11 +10,11 @@ def setup_dataset(config):
         'va': 'VA_Estimation_Challenge'
     }
 
-    data_path = os.path.join(config.label_path, data_path.get(config.data_name, ''))
+    data_path = os.path.join(config.label_path, data_path.get(config.task, ''))
 
     if config.data_type == 'multimodal':
-        dataset_train = SequenceData(config.feat_path, data_path, config.sq_len, config.data_name, 'train')
-        dataset_val = SequenceData(config.feat_path, data_path, config.sq_len, config.data_name, 'val')
+        dataset_train = SequenceData(config.feat_path, data_path, config.sq_len, config.task, 'train')
+        dataset_val = SequenceData(config.feat_path, data_path, config.sq_len, config.task, 'val')
     else:
         raise ValueError(f'Wrong Data type : {config.data_type}')
 

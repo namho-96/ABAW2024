@@ -35,9 +35,9 @@ class Trainer:
             optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=self.args.lr, momentum=self.args.momentum, weight_decay=self.args.weight_decay)
 
         # Loss function
-        if self.args.data_name == 'va':
+        if self.args.task == 'va':
             criterion = nn.MSELoss()
-        elif self.args.data_name == 'au':
+        elif self.args.task == 'au':
             criterion = nn.BCEWithLogitsLoss()
         else:
             weights = torch.tensor(self.args.weights)
@@ -70,10 +70,10 @@ class Trainer:
             vid, aud, labels = vid.to(self.device), aud.to(self.device), labels.to(self.device)
 
             if self.args.mixup:
-                vid, aud, labels = mixup_function(vid, aud, labels)
+                vid, aud, labels = mixup_function(vid, aud, labels, self.args.task)
 
             outputs = self.model(vid, aud)
-            if self.args.data_name == 'va':
+            if self.args.task == 'va':
                 loss, ccc_loss = VA_loss(outputs[0], outputs[1], labels)
                 if self.args.vis:
                     make_dot(outputs[0].mean(), params=dict(self.model.named_parameters()), show_attrs=True, show_saved=True).render("model_arch", format="png")
@@ -101,17 +101,17 @@ class Trainer:
         running_loss = 0.0
         progress_bar = tqdm(dataloader, desc="Initializing")
 
-        if self.args.data_name == 'va':
+        if self.args.task == 'va':
             pv, pa, gv, ga = [], [], [], []
         else:
-            m = nn.Sigmoid() if self.args.data_name == 'au' else None
+            m = nn.Sigmoid() if self.args.task == 'au' else None
             prediction, gt = [], []
 
         for vid, aud, labels in progress_bar:
             vid, aud, labels = vid.to(self.device), aud.to(self.device), labels.to(self.device)
             outputs = self.model(vid, aud)
 
-            if self.args.data_name == 'va':
+            if self.args.task == 'va':
                 loss, ccc_loss = VA_loss(outputs[0], outputs[1], labels)
                 pv.extend(outputs[0][:, :, 0].cpu().numpy())
                 pa.extend(outputs[1][:, :, 0].cpu().numpy())
@@ -122,10 +122,10 @@ class Trainer:
                 labels = labels.reshape(-1, self.args.num_classes)
                 loss = self.criterion(outputs, labels)
 
-                if self.args.data_name == 'au':
+                if self.args.task == 'au':
                     predicted = m(outputs)
                     predicted = predicted > 0.5
-                elif self.args.data_name == 'expr':
+                elif self.args.task == 'expr':
                     _, predicted = outputs.max(1)
 
                 prediction.extend(predicted.cpu().numpy())
@@ -134,14 +134,15 @@ class Trainer:
             progress_bar.set_description(f"Loss: {loss.item():.4f}")
             running_loss += loss.item()
 
+
         test_loss = running_loss / len(dataloader)
-        if self.args.data_name == 'va':
+        if self.args.task == 'va':
             avg_performance = 0.5 * (CCC_np(pv, gv) + CCC_np(pa, ga))
         else:
             avg_performance = f1_score(gt, prediction, average='macro', zero_division=1)
 
         self.state_dict.update({'performance': avg_performance, 'eval_loss': test_loss})
-        return avg_performance, test_loss
+        return self.state_dict
 
 
 
@@ -166,9 +167,9 @@ def setup_training(config):
         optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=config.lr, momentum=config.momentum, weight_decay=config.weight_decay)
 
     # Loss function
-    if config.data_name == 'va':
+    if config.task == 'va':
         criterion = nn.MSELoss()
-    elif config.data_name == 'au':
+    elif config.task == 'au':
         criterion = nn.BCEWithLogitsLoss()
     else:
         criterion = nn.CrossEntropyLoss()
@@ -189,10 +190,10 @@ def train_function(model, dataloader, criterion, optimizer, device, config):
         vid, aud, labels = vid.to(device), aud.to(device), labels.to(device)
 
         if config.mixup:
-            vid, aud, labels = mixup_function(vid, aud, labels, config.data_name)
+            vid, aud, labels = mixup_function(vid, aud, labels, config.task)
 
         outputs = model(vid, aud)
-        if config.data_name == 'va':
+        if config.task == 'va':
             loss, ccc_loss, ccc_avg, _ = VA_loss(outputs[0], outputs[1], labels)
             if config.vis:
                 make_dot(outputs[0].mean(), params=dict(model.named_parameters()), show_attrs=True, show_saved=True).render("model_arch", format="png")
@@ -207,7 +208,7 @@ def train_function(model, dataloader, criterion, optimizer, device, config):
 
         running_loss += loss.item()
         average_loss = running_loss / (progress_bar.n + 1)          # progress_bar.n은 현재까지 처리된 배치의 수입니다.
-        if config.data_name == 'va':
+        if config.task == 'va':
             progress_bar.set_description(f"Batch_Loss: {loss.item():.4f}, Avg_Loss: {average_loss:.4f}, CCC_Loss: {ccc_loss:.4f}")
         else:
             progress_bar.set_description(f"Batch_Loss: {loss.item():.4f}, Avg_Loss: {average_loss:.4f}")
@@ -222,13 +223,13 @@ def evaluate_function(model, dataloader, criterion, device, config):
     running_loss = 0.0
     progress_bar = tqdm(dataloader, desc="Initializing")
 
-    if config.data_name == 'va':
+    if config.task == 'va':
         prediction_valence = []
         prediction_arousal = []
         gt_valence = []
         gt_arousal = []
     else:
-        if config.data_name == 'au':
+        if config.task == 'au':
             m = nn.Sigmoid()
         prediction = []
         gt = []
@@ -237,7 +238,7 @@ def evaluate_function(model, dataloader, criterion, device, config):
         vid, aud, labels = vid.to(device), aud.to(device), labels.to(device)
         outputs = model(vid, aud)
 
-        if config.data_name == 'va':
+        if config.task == 'va':
             loss, ccc_loss, ccc_avg, _ = VA_loss(outputs[0], outputs[1], labels)
             prediction_valence.extend(outputs[0][:, :, 0].cpu().numpy())
             prediction_arousal.extend(outputs[1][:, :, 0].cpu().numpy())
@@ -245,13 +246,13 @@ def evaluate_function(model, dataloader, criterion, device, config):
             gt_arousal.extend(labels[:, :, 1].cpu().numpy())
         else:
             outputs = outputs.reshape(-1, config.num_classes)
-            labels = labels.reshape(-1, config.num_classes) if config.data_name == "au" else labels.reshape(-1)
+            labels = labels.reshape(-1, config.num_classes) if config.task == "au" else labels.reshape(-1)
             loss = criterion(outputs, labels)
 
-            if config.data_name == 'au':
+            if config.task == 'au':
                 predicted = m(outputs)
                 predicted = predicted > 0.5
-            elif config.data_name == 'expr':
+            elif config.task == 'expr':
                 _, predicted = outputs.max(1)
 
             prediction.extend(predicted.cpu().numpy())
@@ -261,7 +262,7 @@ def evaluate_function(model, dataloader, criterion, device, config):
         running_loss += loss.item()
 
     test_loss = running_loss / len(dataloader)
-    if config.data_name == 'va':
+    if config.task == 'va':
         avg_performance = 0.5 * (CCC_np(prediction_valence, gt_valence) + CCC_np(prediction_arousal, gt_arousal))
     else:
         avg_performance = f1_score(gt, prediction, average='macro', zero_division=1)

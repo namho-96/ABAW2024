@@ -15,7 +15,7 @@ def setup_log(config):
 
     # 로깅 설정
     current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    log_path = os.path.join("output", config.data_name, current_time)
+    log_path = os.path.join("output", config.task, current_time)
     os.makedirs(log_path, exist_ok=True)
 
     # 학습로그 저장
@@ -44,7 +44,7 @@ def log_and_checkpoint(epoch, state_dict, log_path, best_performance):
         # config 정보를 텍스트 파일로 저장합니다.
         config_path = os.path.join(log_path, "config.txt")
         with open(config_path, "w") as f:
-            for key, value in config_to_dict(state_dict['args']).items():
+            for key, value in state_dict['args'].__dict__.items():
                 f.write(f"{key}: {value}\n")
         log_and_checkpoint.config_saved = True
 
@@ -58,7 +58,7 @@ def log_and_checkpoint(epoch, state_dict, log_path, best_performance):
             'state_dict': state_dict['model'].state_dict(),
             'optimizer': state_dict['optimizer'].state_dict(),
             'performance': state_dict['performance'],
-            'config': config_to_dict(state_dict['args'])
+            'config': state_dict['args'].__dict__
         }, best_model_path)
 
     # 로그 및 체크포인트 저장
