@@ -60,8 +60,8 @@ def train_function(model, dataloader, criterion, optimizer, device, config):
                 make_dot(outputs[0].mean(), params=dict(model.named_parameters()), show_attrs=True, show_saved=True).render("model_arch", format="png")
                 config.vis = False
         else:
-            outputs = outputs.reshape(-1, config.num_classes).type(torch.float32)
-            labels = labels.reshape(-1, config.num_classes).type(torch.float32)  # shape 일치
+            outputs = outputs.reshape(-1, config.num_classes)
+            labels = labels.reshape(-1, config.num_classes)
             loss = criterion(outputs, labels)
 
         loss.backward()
@@ -107,7 +107,7 @@ def evaluate_function(model, dataloader, criterion, device, config):
             gt_arousal.extend(labels[:, :, 1].cpu().numpy())
         else:
             outputs = outputs.reshape(-1, config.num_classes)
-            labels = labels.reshape(-1, config.num_classes)
+            labels = labels.reshape(-1, config.num_classes) if config.data_name == "au" else labels.reshape(-1)
             loss = criterion(outputs, labels)
 
             if config.data_name == 'au':
