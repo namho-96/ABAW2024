@@ -127,6 +127,86 @@ class TransformerBlock(nn.Module):
         return output
 
 
+class Neck(nn.Module):
+    def __init__(self, nf, nh, dropout, droppath):
+        super().__init__()
+        self.mlp = nn.Linear(nf * 2, nf)
+        self.norm = nn.LayerNorm(nf * 2)
+        self.transformer = TransformerBlock(nf, nh, False, qkv_bias=True, drop=dropout, attn_drop=dropout, init_values=1e-5, drop_path=droppath)
+        self.norm2 = nn.LayerNorm(nf)
+    
+    def forward(self, img, aud):
+        x = torch.cat((img, aud), 2)
+        x = self.norm(x)  # B L (C*2)
+        x = self.mlp(x)  # B L C
+        x = self.transformer(x)
+        x = self.norm2(x)
+        return x
+    
+
+class Head(nn.Module):
+    def __init__(self, nf, num_classes, task, hs=[256, 512, 768], dropout=0.):
+        super().__init__()
+        self.task = task
+        
+        if self.task == "va":
+            self.conv1d = nn.Conv1d(nf, hs[0], kernel_size=1, padding=0)  # 768 -> 256
+            self.vhead = nn.Sequential(
+                nn.Linear(hs[0], hs[1]),
+                nn.BatchNorm1d(hs[1]),
+                nn.GELU(),
+                nn.Dropout(dropout),
+                nn.Linear(hs[1], hs[2]),
+                nn.BatchNorm1d(hs[2]),
+                nn.GELU(),
+                nn.Dropout(dropout),
+                nn.Linear(hs[2], 1),
+                nn.Tanh()
+            )
+            self.ahead = nn.Sequential(
+                nn.Linear(hs[0], hs[1]),
+                nn.BatchNorm1d(hs[1]),
+                nn.GELU(),
+                nn.Dropout(self.dropout),
+                nn.Linear(hs[1], hs[2]),
+                nn.BatchNorm1d(hs[2]),
+                nn.GELU(),
+                nn.Dropout(self.dropout),
+                nn.Linear(hs[2], 1),
+                nn.Tanh()
+            )
+        
+        elif self.task == "au":
+            self.head = nn.Linear(nf, num_classes)
+            
+        elif self.task == "expr":
+            self.head = nn.Linear(nf, num_classes)
+        
+    def forward(self, x):
+        if self.task == "va":
+            bs, sq, _ = x.shape
+            x = x.permute(0, 2, 1)  # [bs, nf, sq]
+            x = self.conv1d(x)      # [bs, nf*, sq]
+            x = x.permute(0, 2, 1)  # [bs, sq, nf*]
+            x = torch.reshape(x, (bs * sq, -1))  # [bs * sq, nf*]
+
+            vout = self.vhead(x)
+            aout = self.ahead(x)
+
+            vout = vout.view(bs, sq, -1)
+            aout = aout.view(bs, sq, -1)
+            
+            return [vout, aout] 
+                   
+        elif self.task == "au":
+            out = self.head(x)
+            return out
+        
+        elif self.task == 'expr':
+            out = self.head(x)
+            return out
+
+
 class DeepMixAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -136,66 +216,25 @@ class DeepMixAttention(nn.Module):
         self.bs, self.sq, self.nf = self.args.batch_size, self.args.sq_len, self.args.num_features
         self.nh, self.dropout, self.droppath = self.args.num_head, self.args.dropout, self.args.droppath
 
-        self.transformer = TransformerBlock(self.nf, self.nh, False, qkv_bias=True, drop=self.dropout, attn_drop=self.dropout, init_values=1e-5, drop_path=self.droppath)
-        self.transformeria = TransformerBlock(self.nf, self.nh, True, qkv_bias=True, drop=self.dropout, attn_drop=self.dropout, init_values=1e-5, drop_path=self.droppath)
-        self.transformerai = TransformerBlock(self.nf, self.nh, True, qkv_bias=True, drop=self.dropout, attn_drop=self.dropout, init_values=1e-5, drop_path=self.droppath)
-
-        self.norm = nn.LayerNorm(self.nf * 2)
-        self.norm2 = nn.LayerNorm(self.nf)
-        self.mlp = nn.Linear(self.nf * 2, self.nf)
-        self.LeakyReLU = nn.LeakyReLU(0.1)
-        self.tanh = nn.Tanh()
-        self.conv1d = nn.Conv1d(self.nf, hs1, kernel_size=1, padding=0)  # 768 -> 256
-
         self.layers = nn.ModuleList()
         for layer_type in self.model_arch:
             if layer_type == "self":
-                self.layers.append(self.transformer)
-                self.layers.append(self.transformer)
+                self.layers.append(TransformerBlock(self.nf, self.nh, False, qkv_bias=True, drop=self.dropout, attn_drop=self.dropout, init_values=1e-5, drop_path=self.droppath))
+                self.layers.append(TransformerBlock(self.nf, self.nh, False, qkv_bias=True, drop=self.dropout, attn_drop=self.dropout, init_values=1e-5, drop_path=self.droppath))
 
             elif layer_type == "mix":
-                self.layers.append(self.transformeria)
-                self.layers.append(self.transformerai)
+                self.layers.append(TransformerBlock(self.nf, self.nh, True, qkv_bias=True, drop=self.dropout, attn_drop=self.dropout, init_values=1e-5, drop_path=self.droppath))
+                self.layers.append(TransformerBlock(self.nf, self.nh, True, qkv_bias=True, drop=self.dropout, attn_drop=self.dropout, init_values=1e-5, drop_path=self.droppath))
 
             elif layer_type == "forward":
-                self.layers.append(self.transformeria)
-                self.layers.append(self.transformerai)
+                self.layers.append(TransformerBlock(self.nf, self.nh, True, qkv_bias=True, drop=self.dropout, attn_drop=self.dropout, init_values=1e-5, drop_path=self.droppath))
+                self.layers.append(TransformerBlock(self.nf, self.nh, True, qkv_bias=True, drop=self.dropout, attn_drop=self.dropout, init_values=1e-5, drop_path=self.droppath))
 
-            elif layer_type == 'expr':
-                self.layers.append(nn.Linear(self.nf, self.args.num_classes))
-
-            elif layer_type == 'au':
-                self.layers.append(nn.Linear(self.nf, self.args.num_classes))
-
-            elif layer_type == 'va':
-
-                vhead = nn.Sequential(
-                    nn.Linear(hs1, hs2),
-                    nn.BatchNorm1d(hs2),
-                    nn.GELU(),
-                    nn.Dropout(self.dropout),
-                    nn.Linear(hs2, hs3),
-                    nn.BatchNorm1d(hs3),
-                    nn.GELU(),
-                    nn.Dropout(self.dropout),
-                    nn.Linear(hs3, 1),
-                    nn.Tanh()
-                )
-                ahead = nn.Sequential(
-                    nn.Linear(hs1, hs2),
-                    nn.BatchNorm1d(hs2),
-                    nn.GELU(),
-                    nn.Dropout(self.dropout),
-                    nn.Linear(hs2, hs3),
-                    nn.BatchNorm1d(hs3),
-                    nn.GELU(),
-                    nn.Dropout(self.dropout),
-                    nn.Linear(hs3, 1),
-                    nn.Tanh()
-                )
-                # Add VA head
-                self.layers.append(vhead)
-                self.layers.append(ahead)
+            elif layer_type == "neck":
+                self.layers.append(Neck(self.nf, self.nh, self.dropout, self.droppath))
+                
+            elif layer_type == "head":
+                self.layers.append(Head(self.nf, self.args.num_classes, self.args.task, self.args.hidden_size, self.dropout))                 
 
         self.apply(self.init_weights)
 
@@ -240,38 +279,10 @@ class DeepMixAttention(nn.Module):
                 layer_index += 2  # type3의 경우 한 개의 레이어를 사용
 
             elif layer_type == "neck":
-                x = torch.cat((img, aud), 2)
-                x = self.norm(x)  # B L (C*2)
-                x = self.mlp(x)  # B L C
-                x = self.transformer(x)
-                x = self.norm2(x)
-
-            elif layer_type == "expr":
-                out = self.layers[layer_index](x)
+                x = self.layers[layer_index](img, aud)
                 layer_index += 1
-                return out
-
-            elif layer_type == "au":
-                out = self.layers[layer_index](x)
+                
+            elif layer_type == "head":
+                x = self.layers[layer_index](x)
                 layer_index += 1
-                return out
-
-            elif layer_type == "va":
-                x = x.permute(0, 2, 1)  # [bs, nf, sq]
-                x = self.conv1d(x)      # [bs, nf*, sq]
-                x = x.permute(0, 2, 1)  # [bs, sq, nf*]
-                x = torch.reshape(x, (self.bs * self.sq, -1))  # [bs * sq, nf*]
-
-                vout = self.layers[layer_index](x)
-                aout = self.layers[layer_index + 1](x)
-
-                vout = vout.view(self.bs, self.sq, -1)
-                aout = aout.view(self.bs, self.sq, -1)
-
-                layer_index += 2
-                return [vout, aout]
-
-
-
-
-
+                return x

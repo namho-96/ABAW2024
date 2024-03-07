@@ -40,9 +40,7 @@ class Trainer:
         elif self.args.task == 'au':
             criterion = nn.BCEWithLogitsLoss()
         else:
-            weights = torch.tensor(self.args.weights)
-            weights.to(device)
-            criterion = nn.CrossEntropyLoss(weights)
+            criterion = nn.CrossEntropyLoss()
 
         # Scheduler
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.args.epochs)
@@ -79,16 +77,19 @@ class Trainer:
                     make_dot(outputs[0].mean(), params=dict(self.model.named_parameters()), show_attrs=True, show_saved=True).render("model_arch", format="png")
                     self.args.vis = False
             else:
-                outputs = outputs.reshape(-1, self.args.num_classes).type(torch.float32)
-                labels = labels.reshape(-1, self.args.num_classes).type(torch.float32)  # shape 일치
+                outputs = outputs.reshape(-1, self.args.num_classes)
+                labels = labels.reshape(-1, self.args.num_classes)
                 loss = self.criterion(outputs, labels)
 
             loss.backward()
             self.optimizer.step()
 
             running_loss += loss.item()
-            average_loss = running_loss / (progress_bar.n + 1)  # progress_bar.n은 현재까지 처리된 배치의 수입니다.
-            progress_bar.set_description(f"Batch_Loss: {loss.item():.4f}, Avg_Loss: {average_loss:.4f}, CCC_Loss: {ccc_loss:.4f}")
+            average_loss = running_loss / (progress_bar.n + 1)  # progress_bar.n은 현재까지 처리된 배치의 수입니다.            
+            if self.args.task == 'va':
+                progress_bar.set_description(f"Batch_Loss: {loss.item():.4f}, Avg_Loss: {average_loss:.4f}, CCC_Loss: {ccc_loss:.4f}")
+            else:
+                progress_bar.set_description(f"Batch_Loss: {loss.item():.4f}, Avg_Loss: {average_loss:.4f}")
 
         train_loss = running_loss / len(dataloader)
         self.scheduler.step()
@@ -119,7 +120,7 @@ class Trainer:
                 ga.extend(labels[:, :, 1].cpu().numpy())
             else:
                 outputs = outputs.reshape(-1, self.args.num_classes)
-                labels = labels.reshape(-1, self.args.num_classes)
+                labels = labels.reshape(-1, self.args.num_classes) if self.args.task == "au" else torch.as_tensor(labels, dtype=torch.long).reshape(-1)
                 loss = self.criterion(outputs, labels)
 
                 if self.args.task == 'au':
@@ -143,131 +144,6 @@ class Trainer:
 
         self.state_dict.update({'performance': avg_performance, 'eval_loss': test_loss})
         return self.state_dict
-
-
-
-
-
-
-def setup_training(config):
-    # Set device
-    device = torch.device(f"cuda:{config.device}" if torch.cuda.is_available() else "cpu")
-    logging.info(f"Using device: {device}")
-
-    # Load model
-    model = load_model(config)
-    model.to(device)
-
-    # Optimizer
-    if config.optimizer == "adamw":
-        optimizer = optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=config.lr, betas=(0.9, 0.999), weight_decay=0.05)
-    elif config.optimizer == "adam":
-        optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=config.lr, betas=(0.9, 0.999))
-    else:
-        optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=config.lr, momentum=config.momentum, weight_decay=config.weight_decay)
-
-    # Loss function
-    if config.task == 'va':
-        criterion = nn.MSELoss()
-    elif config.task == 'au':
-        criterion = nn.BCEWithLogitsLoss()
-    else:
-        criterion = nn.CrossEntropyLoss()
-
-    # Scheduler
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.epochs)
-    return device, model, optimizer, scheduler, criterion
-    
-
-# 학습 함수 정의
-def train_function(model, dataloader, criterion, optimizer, device, config):
-    model.train()
-    running_loss = 0.0
-    progress_bar = tqdm(dataloader, desc="Initializing")
-
-    for vid, aud, labels in progress_bar:
-        optimizer.zero_grad()
-        vid, aud, labels = vid.to(device), aud.to(device), labels.to(device)
-
-        if config.mixup:
-            vid, aud, labels = mixup_function(vid, aud, labels, config.task)
-
-        outputs = model(vid, aud)
-        if config.task == 'va':
-            loss, ccc_loss, ccc_avg, _ = VA_loss(outputs[0], outputs[1], labels)
-            if config.vis:
-                make_dot(outputs[0].mean(), params=dict(model.named_parameters()), show_attrs=True, show_saved=True).render("model_arch", format="png")
-                config.vis = False
-        else:
-            outputs = outputs.reshape(-1, config.num_classes)
-            labels = labels.reshape(-1, config.num_classes)
-            loss = criterion(outputs, labels)
-
-        loss.backward()
-        optimizer.step()
-
-        running_loss += loss.item()
-        average_loss = running_loss / (progress_bar.n + 1)          # progress_bar.n은 현재까지 처리된 배치의 수입니다.
-        if config.task == 'va':
-            progress_bar.set_description(f"Batch_Loss: {loss.item():.4f}, Avg_Loss: {average_loss:.4f}, CCC_Loss: {ccc_loss:.4f}")
-        else:
-            progress_bar.set_description(f"Batch_Loss: {loss.item():.4f}, Avg_Loss: {average_loss:.4f}")
-    train_loss = running_loss / len(dataloader)
-    return model, train_loss
-
-
-# 평가 함수 정의
-@torch.no_grad()
-def evaluate_function(model, dataloader, criterion, device, config):
-    model.eval()
-    running_loss = 0.0
-    progress_bar = tqdm(dataloader, desc="Initializing")
-
-    if config.task == 'va':
-        prediction_valence = []
-        prediction_arousal = []
-        gt_valence = []
-        gt_arousal = []
-    else:
-        if config.task == 'au':
-            m = nn.Sigmoid()
-        prediction = []
-        gt = []
-
-    for vid, aud, labels in progress_bar:
-        vid, aud, labels = vid.to(device), aud.to(device), labels.to(device)
-        outputs = model(vid, aud)
-
-        if config.task == 'va':
-            loss, ccc_loss, ccc_avg, _ = VA_loss(outputs[0], outputs[1], labels)
-            prediction_valence.extend(outputs[0][:, :, 0].cpu().numpy())
-            prediction_arousal.extend(outputs[1][:, :, 0].cpu().numpy())
-            gt_valence.extend(labels[:, :, 0].cpu().numpy())
-            gt_arousal.extend(labels[:, :, 1].cpu().numpy())
-        else:
-            outputs = outputs.reshape(-1, config.num_classes)
-            labels = labels.reshape(-1, config.num_classes) if config.task == "au" else labels.reshape(-1)
-            loss = criterion(outputs, labels)
-
-            if config.task == 'au':
-                predicted = m(outputs)
-                predicted = predicted > 0.5
-            elif config.task == 'expr':
-                _, predicted = outputs.max(1)
-
-            prediction.extend(predicted.cpu().numpy())
-            gt.extend(labels.cpu().numpy())
-
-        progress_bar.set_description(f"Loss: {loss.item():.4f}")
-        running_loss += loss.item()
-
-    test_loss = running_loss / len(dataloader)
-    if config.task == 'va':
-        avg_performance = 0.5 * (CCC_np(prediction_valence, gt_valence) + CCC_np(prediction_arousal, gt_arousal))
-    else:
-        avg_performance = f1_score(gt, prediction, average='macro', zero_division=1)
-
-    return avg_performance, test_loss
 
 
 def one_hot(x, num_classes, on_value=1., off_value=0.):

@@ -3,7 +3,7 @@ from config_abaw_au import get_args
 from prediction import predict_function
 from data.dataset import setup_dataset
 from utils.utils import fix_seed, setup_log, log_and_checkpoint
-from train import train_function, evaluate_function, setup_training, Trainer
+from train import Trainer
 logging.getLogger().setLevel(logging.INFO)
 
 
