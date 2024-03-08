@@ -37,7 +37,7 @@ def get_args():
     parser.add_argument('--resume', type=str, default=None, help="Path to resume model. If not specified or 'none', training starts from scratch.")
 
     # Model architecture
-    parser.add_argument('--model_arch', nargs='+', type=str, default=["self", "mix", "mix", "forward", "neck", "va"], help='Model architecture')
+    parser.add_argument('--model_arch', nargs='+', type=str, default=["self", "mix", "forward", "neck", "head"], help='Model architecture')
     parser.add_argument('--vis', default=False, help='Save model architecture visualization')
 
     args = parser.parse_args()

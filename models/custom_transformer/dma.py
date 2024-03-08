@@ -167,11 +167,11 @@ class Head(nn.Module):
                 nn.Linear(hs[0], hs[1]),
                 nn.BatchNorm1d(hs[1]),
                 nn.GELU(),
-                nn.Dropout(self.dropout),
+                nn.Dropout(dropout),
                 nn.Linear(hs[1], hs[2]),
                 nn.BatchNorm1d(hs[2]),
                 nn.GELU(),
-                nn.Dropout(self.dropout),
+                nn.Dropout(dropout),
                 nn.Linear(hs[2], 1),
                 nn.Tanh()
             )
