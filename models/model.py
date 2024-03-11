@@ -1,4 +1,4 @@
-from .custom_transformer import BaseModel, VAmodel, BaseModel2, BaseModel3, DeepMixAttention
+from .custom_transformer import BaseModel, VAmodel, BaseModel2, BaseModel3, DeepMixAttention, DeepMixAttention3
 
 
 def load_model(config_module):
@@ -12,6 +12,9 @@ def load_model(config_module):
         model = BaseModel3(config_module.num_features, config_module.num_head, config_module.num_classes)
     elif config_module.model_name == 'dma':
         model = DeepMixAttention(config_module)
+    elif config_module.model_name == 'dma3':
+        model = DeepMixAttention3(config_module)
+
     else:
         raise Exception("Wrong config_module.model_name")
 

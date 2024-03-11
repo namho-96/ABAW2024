@@ -43,7 +43,7 @@ class Trainer:
             criterion = nn.CrossEntropyLoss()
 
         # Scheduler
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.args.epochs)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.args.epochs / 10, eta_min=self.args.lr * 0.01)
         return device, model, optimizer, scheduler, criterion
 
     def load_checkpoint(self):
