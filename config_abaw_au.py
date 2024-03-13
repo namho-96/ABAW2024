@@ -13,7 +13,7 @@ def get_args():
     # Data
     parser.add_argument('--task', type=str, default='va', help='Name of the data [va, expr, au]')
     parser.add_argument('--data_type', type=str, default='multimodal', help='Type of the data')
-
+    parser.add_argument('--train_all', action='store_true', help='Type of the data')
     # Model
     parser.add_argument('--model_name', type=str, default='dma', help='Name of the model')
     parser.add_argument('--num_head', type=int, default=8, help='Number of attention heads')

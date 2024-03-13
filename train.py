@@ -3,6 +3,7 @@ import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import itertools
 from tqdm import tqdm
 from torchviz import make_dot
 from sklearn.metrics import f1_score
@@ -92,6 +93,42 @@ class Trainer:
                 progress_bar.set_description(f"Batch_Loss: {loss.item():.4f}, Avg_Loss: {average_loss:.4f}")
 
         train_loss = running_loss / len(dataloader)
+        self.scheduler.step()
+        self.state_dict.update({'model': self.model, 'optimizer': self.optimizer, 'scheduler': self.scheduler, 'train_loss': train_loss})
+        return self.state_dict
+
+    def train_all(self, train_loader, val_loader):
+        self.model.train()
+        running_loss = 0.0
+        combine = itertools.chain(train_loader, val_loader)
+        progress_bar = tqdm(combine, desc="Initializing")
+
+        for vid, aud, labels in progress_bar:
+            self.optimizer.zero_grad()
+            vid, aud, labels = vid.to(self.device), aud.to(self.device), labels.to(self.device)
+
+            if self.args.mixup:
+                vid, aud, labels = mixup_function(vid, aud, labels, self.args.task)
+
+            outputs = self.model(vid, aud)
+            if self.args.task == 'va':
+                loss, ccc_loss = VA_loss(outputs[0], outputs[1], labels)
+                if self.args.vis:
+                    make_dot(outputs[0].mean(), params=dict(self.model.named_parameters()), show_attrs=True, show_saved=True).render("model_arch", format="png")
+                    self.args.vis = False
+            else:
+                outputs = outputs.reshape(-1, self.args.num_classes)
+                labels = labels.reshape(-1, self.args.num_classes)
+                loss = self.criterion(outputs, labels)
+
+            loss.backward()
+            self.optimizer.step()
+
+            running_loss += loss.item()
+            average_loss = running_loss / (progress_bar.n + 1)  # progress_bar.n은 현재까지 처리된 배치의 수입니다.
+            progress_bar.set_description(f"Batch_Loss: {loss.item():.4f}, Avg_Loss: {average_loss:.4f}")
+
+        train_loss = running_loss / (len(train_loader) + len(val_loader))
         self.scheduler.step()
         self.state_dict.update({'model': self.model, 'optimizer': self.optimizer, 'scheduler': self.scheduler, 'train_loss': train_loss})
         return self.state_dict
