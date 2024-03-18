@@ -39,7 +39,7 @@ def config_to_dict(config_module):
     return config_dict
 
 
-def log_and_checkpoint(epoch, state_dict, log_path, best_performance):
+def log_and_checkpoint(epoch, state_dict, log_path, best_performance, best_loss):
     if not hasattr(log_and_checkpoint, "config_saved"):
         # config 정보를 텍스트 파일로 저장합니다.
         config_path = os.path.join(log_path, "config.txt")
@@ -52,18 +52,36 @@ def log_and_checkpoint(epoch, state_dict, log_path, best_performance):
     if state_dict['performance'] > best_performance:
         logging.info(f"New best model with performance: {state_dict['performance']:.4f}, saving model...")
         best_performance = state_dict['performance']  # 최고 성능 갱신
-        best_model_path = os.path.join(log_path, f"best_model_epoch_{epoch}_performance_{state_dict['performance']:.4f}.pth")
+        best_model_path = os.path.join(log_path,
+                                       f"best_model_epoch_{epoch}_performance_{state_dict['performance']:.4f}.pth")
         torch.save({
             'epoch': epoch + 1,
             'state_dict': state_dict['model'].state_dict(),
             'optimizer': state_dict['optimizer'].state_dict(),
             'performance': state_dict['performance'],
-            'config': state_dict['args'].__dict__
+            'config': state_dict['args'].__dict__,
+            'Loss': state_dict["eval_loss"]
         }, best_model_path)
 
+    # 현재 성능이 이전 최고 성능보다 좋을 경우 모델 저장
+    if state_dict['eval_loss'] < best_loss:
+        logging.info(f"New best model with loss: {state_dict['eval_loss']:.4f}, saving model...")
+        best_loss = state_dict['eval_loss']  # 최고 성능 갱신
+        best_loss_model_path = os.path.join(log_path,
+                                            f"best_model_epoch_{epoch}_loss_{state_dict['eval_loss']:.4f}.pth")
+        torch.save({
+            'epoch': epoch + 1,
+            'state_dict': state_dict['model'].state_dict(),
+            'optimizer': state_dict['optimizer'].state_dict(),
+            'performance': state_dict['performance'],
+            'config': state_dict['args'].__dict__,
+            'Loss': state_dict["eval_loss"]
+        }, best_loss_model_path)
+
     # 로그 및 체크포인트 저장
-    logging.info(f'Epoch {epoch}: Train Loss: {state_dict["train_loss"]:.4f}, Valid Loss: {state_dict["eval_loss"]:.4f}, '
-                 f'Performance: {state_dict["performance"]:.4f}, Best: {best_performance:.4f}')
+    logging.info(
+        f'Epoch {epoch}: Train Loss: {state_dict["train_loss"]:.4f}, Valid Loss: {state_dict["eval_loss"]:.4f}, '
+        f'Performance: {state_dict["performance"]:.4f}, Best: {best_performance:.4f}')
 
     wandb.log({"Epoch": epoch,
                "Train Loss": state_dict["train_loss"],
@@ -72,7 +90,16 @@ def log_and_checkpoint(epoch, state_dict, log_path, best_performance):
                "Best Performance": best_performance,
                "Learning Rate": state_dict['scheduler'].get_last_lr()[0]})
 
-    return best_performance
+    last_model_path = os.path.join(log_path, f"last_model.pth")
+    torch.save({
+        'epoch': epoch + 1,
+        'state_dict': state_dict['model'].state_dict(),
+        'optimizer': state_dict['optimizer'].state_dict(),
+        'performance': state_dict['performance'],
+        'config': state_dict['args'].__dict__
+    }, last_model_path)
+
+    return best_performance, best_loss
 
 
 
